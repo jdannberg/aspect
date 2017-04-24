@@ -41,6 +41,30 @@ using namespace dealii;
 
 namespace aspect
 {
+
+  namespace
+  {
+    template<int dim>
+    bool
+    is_velocity_or_pressures (const Introspection<dim> &introspection,
+                              const unsigned int p_c_component_index,
+                              const unsigned int p_f_component_index,
+                              const unsigned int component_index)
+    {
+      if (component_index == p_c_component_index)
+        return true;
+
+      if (component_index == p_f_component_index)
+        return true;
+
+      for (unsigned int i=0; i<dim; ++i)
+        if (component_index == introspection.component_indices.velocities[i])
+          return true;
+
+      return false;
+    }
+  }
+
   template <int dim>
   FreeSurfaceHandler<dim>::FreeSurfaceHandler (Simulator<dim> &simulator,
                                                ParameterHandler &prm)
@@ -693,16 +717,21 @@ namespace aspect
             sim.compute_material_model_input_values (sim.solution,
                                                      scratch.face_finite_element_values,
                                                      cell,
-                                                     false,
+                                                     sim.parameters.include_melt_transport,
                                                      scratch.face_material_model_inputs);
 
             sim.material_model->evaluate(scratch.face_material_model_inputs, scratch.face_material_model_outputs);
+
+            const unsigned int p_f_component_index = introspection.variable("fluid pressure").first_component_index;
+            const unsigned int p_c_component_index = introspection.variable("compaction pressure").first_component_index;
 
             for (unsigned int q_point = 0; q_point < n_face_q_points; ++q_point)
               {
                 for (unsigned int i = 0, i_stokes = 0; i_stokes < stokes_dofs_per_cell; /*increment at end of loop*/)
                   {
-                    if (introspection.is_stokes_component(fe.system_to_component_index(i).first))
+                    const unsigned int component_index_i = fe.system_to_component_index(i).first;
+
+                    if (is_velocity_or_pressures(introspection,p_c_component_index,p_f_component_index,component_index_i))
                       {
                         scratch.phi_u[i_stokes] = scratch.face_finite_element_values[introspection.extractors.velocities].value(i, q_point);
                         ++i_stokes;
