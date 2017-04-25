@@ -48,6 +48,7 @@ namespace aspect
 
       // get the melt velocity from the solution vector
       std::vector<Tensor<1,dim> > melt_velocity (material_model_inputs.position.size());
+      std::vector<double> old_porosity(material_model_inputs.position.size());
 
       if (material_model_inputs.cell && this->get_timestep_number() > 0)
         {
@@ -68,6 +69,17 @@ namespace aspect
           for (unsigned int i=0; i<material_model_inputs.position.size(); ++i)
             for (unsigned int d=0; d<dim; ++d)
               melt_velocity[i][d] = melt_velocitiy_vector[d][i];
+
+          // We also have to get the old porosity for the threshold cutoff
+          Functions::FEFieldFunction<dim, DoFHandler<dim>, LinearAlgebra::BlockVector>
+          fe_value_old(this->get_dof_handler(), this->get_old_solution(), this->get_mapping());
+
+          const unsigned int porosity_idx = this->introspection().compositional_index_for_name("porosity");
+
+          fe_value_old.set_active_cell(*material_model_inputs.cell);
+          fe_value_old.value_list(material_model_inputs.position,
+                                  old_porosity,
+                                  this->introspection().component_indices.compositional_fields[porosity_idx]);
         }
 
       const MaterialModel::MeltOutputs<dim> *melt_outputs = material_model_outputs.template get_additional_output<MaterialModel::MeltOutputs<dim> >();
@@ -77,11 +89,11 @@ namespace aspect
         {
           const double porosity = material_model_inputs.composition[q][this->introspection().compositional_index_for_name("porosity")];
 
-          if (porosity >= this->get_melt_handler().melt_transport_threshold)
+          if (old_porosity[q] >= this->get_melt_handler().melt_transport_threshold)
             heating_model_outputs.heating_source_terms[q] = melt_outputs->compaction_viscosities[q]
                                                             * pow(trace(material_model_inputs.strain_rate[q]),2)
                                                             +
-                                                            (melt_outputs->permeabilities[q] > 0
+                                                            (melt_outputs->permeabilities[q] > 0.0
                                                              ?
                                                              melt_outputs->fluid_viscosities[q] * porosity * porosity
                                                              / melt_outputs->permeabilities[q]
