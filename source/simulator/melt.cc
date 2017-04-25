@@ -151,11 +151,7 @@ namespace aspect
           const unsigned int porosity_index = introspection.compositional_index_for_name("porosity");
           const double porosity = std::max(scratch.material_model_inputs.composition[q][porosity_index], 0.0);
 
-          const double K_D = (porosity > this->get_melt_handler().melt_transport_threshold
-                              ?
-                              melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q]
-                              :
-                              0.0);
+          const double K_D = melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q];
           const double viscosity_c = melt_outputs->compaction_viscosities[q];
 
           const SymmetricTensor<4,dim> &stress_strain_director =
@@ -279,11 +275,7 @@ namespace aspect
 
           const unsigned int porosity_index = introspection.compositional_index_for_name("porosity");
           const double porosity = std::max(scratch.material_model_inputs.composition[q][porosity_index],0.000);
-          const double K_D = (porosity > this->get_melt_handler().melt_transport_threshold
-                              ?
-                              melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q]
-                              :
-                              0.0);
+          const double K_D = melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q];
           const double viscosity_c = melt_outputs->compaction_viscosities[q];
           const Tensor<1,dim> density_gradient_f = melt_outputs->fluid_density_gradients[q];
           const double density_f = melt_outputs->fluid_densities[q];
@@ -398,11 +390,7 @@ namespace aspect
           const unsigned int porosity_index = introspection.compositional_index_for_name("porosity");
           const double porosity = std::max(scratch.face_material_model_inputs.composition[q][porosity_index],0.0);
 
-          const double K_D = (porosity > this->get_melt_handler().melt_transport_threshold
-                              ?
-                              melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q]
-                              :
-                              0.0);
+          const double K_D = melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q];
 
           for (unsigned int i=0, i_stokes=0; i_stokes<stokes_dofs_per_cell; /*increment at end of loop*/)
             {
@@ -453,6 +441,11 @@ namespace aspect
       const FEValuesExtractors::Vector ex_u_f = introspection.variable("fluid velocity").extractor_vector();
       scratch.finite_element_values[ex_u_f].get_function_values (this->get_solution(),fluid_velocity_values);
 
+      const unsigned int porosity_index = introspection.compositional_index_for_name("porosity");
+      std::vector<double> old_porosity_values(n_q_points);
+      scratch.finite_element_values[this->introspection().extractors.compositional_fields[porosity_index]].get_function_values (
+        this->get_old_solution(), old_porosity_values);
+
       for (unsigned int q=0; q<n_q_points; ++q)
         {
           // precompute the values of shape functions and their gradients.
@@ -470,7 +463,6 @@ namespace aspect
               ++i;
             }
 
-          const unsigned int porosity_index = introspection.compositional_index_for_name("porosity");
           const double porosity = std::max(scratch.material_model_inputs.composition[q][porosity_index],0.0);
           const double bulk_density = (1.0 - porosity) * scratch.material_model_outputs.densities[q] + porosity * melt_outputs->fluid_densities[q];
 
@@ -563,7 +555,7 @@ namespace aspect
           double density_c_P_solid = density_c_P;
           double density_c_P_melt = 0.0;
 
-          if (advection_field.is_temperature() && porosity >= this->get_melt_handler().melt_transport_threshold
+          if (advection_field.is_temperature() && old_porosity_values[q] >= this->get_melt_handler().melt_transport_threshold
               && this->get_melt_handler().heat_advection_by_melt)
             {
               density_c_P_solid = (1.0 - porosity) * scratch.material_model_outputs.densities[q] * scratch.material_model_outputs.specific_heat[q];
@@ -713,11 +705,7 @@ namespace aspect
       const Tensor<1,dim> fluid_density_gradient = melt_out->fluid_density_gradients[q_point];
       const Tensor<1,dim> current_u = scratch.velocity_values[q_point];
       const double porosity         = std::max(material_model_inputs.composition[q_point][porosity_index],0.0);
-      const double K_D = (porosity > this->get_melt_handler().melt_transport_threshold
-                          ?
-                          melt_out->permeabilities[q_point] / melt_out->fluid_viscosities[q_point]
-                          :
-                          0.0);
+      const double K_D              = melt_out->permeabilities[q_point] / melt_out->fluid_viscosities[q_point];
 
       const Tensor<1,dim>
       gravity = this->get_gravity_model().gravity_vector (scratch.finite_element_values.quadrature_point(q_point));
@@ -777,8 +765,12 @@ namespace aspect
       double melt_transport_RHS = melting_rate / density
                                   + divergence_u + compressibility * density * (current_u * gravity);
 
-      if (current_phi < this->get_melt_handler().melt_transport_threshold
-          && melting_rate < this->get_melt_handler().melt_transport_threshold)
+      const double threshold = this->get_melt_handler().melt_transport_threshold;
+
+      // we have to query the old solution to find out if the porosity is above the melt transport threshold,
+      // otherwise we run into convergence problems with the nonlinear solver
+      const double old_phi = scratch.old_field_values[q_point];
+      if (old_phi < this->get_melt_handler().melt_transport_threshold)
         melt_transport_RHS = melting_rate / density;
 
       return melt_transport_RHS;
@@ -906,6 +898,7 @@ namespace aspect
       FullMatrix<double> cell_matrix (dofs_per_cell, dofs_per_cell);
 
       std::vector<double> porosity_values(quadrature.size());
+      std::vector<double> old_porosity_values(quadrature.size());
       std::vector<Tensor<1,dim> > grad_p_f_values(quadrature.size());
       std::vector<Tensor<1,dim> > u_s_values(quadrature.size());
 
@@ -925,6 +918,8 @@ namespace aspect
 
             fe_values[this->introspection().extractors.compositional_fields[por_idx]].get_function_values (
               solution, porosity_values);
+            fe_values[this->introspection().extractors.compositional_fields[por_idx]].get_function_values (
+              this->get_old_solution(), old_porosity_values);
             fe_values[this->introspection().extractors.velocities].get_function_values (
               solution, u_s_values);
 
@@ -951,16 +946,18 @@ namespace aspect
                                         fe_values.JxW(q);
 
                   const double phi = std::max(0.0, porosity_values[q]);
+                  const double K_D = melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q];
+                  const Tensor<1,dim>  gravity = this->get_gravity_model().gravity_vector(in.position[q]);
 
                   // u_f =  u_s - K_D (nabla p_f - rho_f g) / phi  or = 0
                   if (phi > this->get_melt_handler().melt_transport_threshold)
-                    {
-                      const double K_D = melt_outputs->permeabilities[q] / melt_outputs->fluid_viscosities[q];
-                      const Tensor<1,dim>  gravity = this->get_gravity_model().gravity_vector(in.position[q]);
-                      cell_vector(i) += (u_s_values[q] - K_D * (grad_p_f_values[q] - melt_outputs->fluid_densities[q]*gravity) / phi)
-                                        * fe_values[fluid_velocity_extractor].value(i,q)
-                                        * fe_values.JxW(q);
-                    }
+                    cell_vector(i) += (u_s_values[q] - K_D * (grad_p_f_values[q] - melt_outputs->fluid_densities[q]*gravity) / phi)
+                                      * fe_values[fluid_velocity_extractor].value(i,q)
+                                      * fe_values.JxW(q);
+                  else
+                    cell_vector(i) += (u_s_values[q])
+                                      * fe_values[fluid_velocity_extractor].value(i,q)
+                                      * fe_values.JxW(q);
 
                 }
 
