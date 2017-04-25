@@ -722,21 +722,36 @@ namespace aspect
 
             sim.material_model->evaluate(scratch.face_material_model_inputs, scratch.face_material_model_outputs);
 
-            const unsigned int p_f_component_index = introspection.variable("fluid pressure").first_component_index;
-            const unsigned int p_c_component_index = introspection.variable("compaction pressure").first_component_index;
-
             for (unsigned int q_point = 0; q_point < n_face_q_points; ++q_point)
               {
-                for (unsigned int i = 0, i_stokes = 0; i_stokes < stokes_dofs_per_cell; /*increment at end of loop*/)
+                if(sim.parameters.include_melt_transport)
                   {
-                    const unsigned int component_index_i = fe.system_to_component_index(i).first;
+                    const unsigned int p_f_component_index = introspection.variable("fluid pressure").first_component_index;
+                    const unsigned int p_c_component_index = introspection.variable("compaction pressure").first_component_index;
 
-                    if (is_velocity_or_pressures(introspection,p_c_component_index,p_f_component_index,component_index_i))
+                    for (unsigned int i = 0, i_stokes = 0; i_stokes < stokes_dofs_per_cell; /*increment at end of loop*/)
                       {
-                        scratch.phi_u[i_stokes] = scratch.face_finite_element_values[introspection.extractors.velocities].value(i, q_point);
-                        ++i_stokes;
+                        const unsigned int component_index_i = fe.system_to_component_index(i).first;
+
+                        if (is_velocity_or_pressures(introspection,p_c_component_index,p_f_component_index,component_index_i))
+                          {
+                            scratch.phi_u[i_stokes] = scratch.face_finite_element_values[introspection.extractors.velocities].value(i, q_point);
+                            ++i_stokes;
+                          }
+                        ++i;
                       }
-                    ++i;
+                  }
+                else
+                  {
+                    for (unsigned int i = 0, i_stokes = 0; i_stokes < stokes_dofs_per_cell; /*increment at end of loop*/)
+                      {
+                        if (introspection.is_stokes_component(fe.system_to_component_index(i).first))
+                          {
+                            scratch.phi_u[i_stokes] = scratch.face_finite_element_values[introspection.extractors.velocities].value(i, q_point);
+                            ++i_stokes;
+                          }
+                        ++i;
+                      }
                   }
 
                 const Tensor<1,dim>
