@@ -61,6 +61,16 @@ namespace aspect
                 break;
               }
 
+              case DensityFormulation::average_density:
+              {
+                const unsigned int porosity_idx = this->introspection().compositional_index_for_name("porosity");
+                const double porosity = std::min(1.0, std::max(material_model_inputs.composition[q][porosity_idx],0.0));
+                const double average_density = porosity * melt_outputs->fluid_densities[q]
+                                             + (1.0 - porosity) * material_model_outputs.densities[q];
+                fluid_pressure_gradient_outputs[q] = (average_density * gravity) * normal_vectors[q];
+                break;
+              }
+
               default:
                 Assert (false, ExcNotImplemented());
             }
@@ -76,7 +86,7 @@ namespace aspect
         prm.enter_subsection("Density");
         {
           prm.declare_entry ("Density formulation", "solid density",
-                             Patterns::Selection ("solid density|fluid density"),
+                             Patterns::Selection ("solid density|fluid density|average density"),
                              "The density formulation used to compute the fluid pressure gradient "
                              "at the model boundary."
                              "\n\n"
@@ -110,6 +120,8 @@ namespace aspect
             density_formulation = DensityFormulation::solid_density;
           else if (prm.get ("Density formulation") == "fluid density")
             density_formulation = DensityFormulation::fluid_density;
+          else if (prm.get ("Density formulation") == "average density")
+            density_formulation = DensityFormulation::average_density;
           else
             AssertThrow (false, ExcNotImplemented());
         }
