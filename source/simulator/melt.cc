@@ -335,7 +335,7 @@ namespace aspect
                                                 (- pressure_scaling * pressure_scaling / viscosity_c
                                                  * scratch.phi_p_c[i] * scratch.phi_p_c[j])
                                                 - pressure_scaling * scratch.div_phi_u[i] * scratch.phi_p_c[j]
-                                                - pressure_scaling * scratch.phi_p_c[i] * scratch.div_phi_u[j]
+                                                - (K_D>0 ? pressure_scaling * scratch.phi_p_c[i] * scratch.div_phi_u[j] : 0.0)
                                                 - K_D * pressure_scaling * pressure_scaling *
                                                 (scratch.grad_phi_p[i] * scratch.grad_phi_p[j])
                                                 + (this->get_material_model().is_compressible()
