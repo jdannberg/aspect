@@ -25,6 +25,7 @@
 #include <aspect/simulator.h>
 #include <aspect/material_model/interface.h>
 
+#include <deal.II/grid/grid_tools.h>
 #include <deal.II/numerics/data_out.h>
 
 
@@ -109,15 +110,26 @@ namespace aspect
         MeltHandler<dim>::create_material_model_outputs(out);
 
         in.position = input_data.evaluation_points;
-        in.strain_rate.resize(0); // we do not need the viscosity
+        Point<dim> mid_point;
         for (unsigned int q=0; q<n_quadrature_points; ++q)
           {
             in.pressure[q] = input_data.solution_values[q][this->introspection().component_indices.pressure];
             in.temperature[q] = input_data.solution_values[q][this->introspection().component_indices.temperature];
+            Tensor<2,dim> grad_u;
+            for (unsigned int d=0; d<dim; ++d)
+              grad_u[d] = solution_gradients[q][d];
+            in.strain_rate[q] = symmetrize (grad_u);
+
 
             for (unsigned int c=0; c<this->n_compositional_fields(); ++c)
               in.composition[q][c] = input_data.solution_values[q][this->introspection().component_indices.compositional_fields[c]];
+
+            mid_point += evaluation_points[q]/n_quadrature_points;
           }
+
+        typename DoFHandler<dim>::active_cell_iterator cell;
+        cell = (GridTools::find_active_cell_around_point<> (this->get_mapping(), this->get_dof_handler(), mid_point)).first;
+        in.cell = &cell;
 
         this->get_material_model().evaluate(in, out);
         MaterialModel::MeltOutputs<dim> *melt_outputs = out.template get_additional_output<MaterialModel::MeltOutputs<dim> >();
