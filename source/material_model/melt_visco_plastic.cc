@@ -165,6 +165,9 @@ namespace aspect
       // get all material properties form the visco-plastic model
       DiffusionDislocation<dim>::evaluate(in, out);
 
+      // Define elastic time step
+      const double dte = elastic_time_step * year_in_seconds;
+
       std::vector<double> maximum_melt_fractions(in.position.size());
       std::vector<double> old_porosity(in.position.size());
       std::vector<double> fluid_pressures(in.position.size());
@@ -189,8 +192,8 @@ namespace aspect
                 {   
                   elastic_shear_modulus += volume_fractions[c] * elastic_shear_moduli[c];
                 }   
-                elastic_out->elastic_viscosities[i] = 1. / ( ( 1. / initial_viscosity ) + ( 1. / ( elastic_shear_modulus * this->get_timestep() ) ) );
-                elastic_out->elastic_evolutions[i] = 1. / ( 1. + ( ( elastic_shear_modulus * this->get_timestep() ) / initial_viscosity ) );
+                elastic_out->elastic_viscosities[i] = 1. / ( ( 1. / initial_viscosity ) + ( 1. / ( elastic_shear_modulus * dte ) ) );
+                elastic_out->elastic_evolutions[i] = 1. / ( 1. + ( ( elastic_shear_modulus * dte ) / initial_viscosity ) );
             }
         }
  
@@ -299,15 +302,19 @@ namespace aspect
                   const std::vector<double> volume_fractions = compute_volume_fractions(in.composition[i]);
  
                   // Calculate viscoelastic viscosity
-                  const double initial_viscosity = out.viscosities[i];
-                  double viscoelastic = 0.0;
-                  for (unsigned int c=0; c< volume_fractions.size(); ++c)
+                  if (model_is_viscoelastic == true)
                     {
-                      double elastic_shear_modulus = elastic_shear_moduli[c];
-                      viscoelastic += volume_fractions[c] * 1. / ( ( 1. / initial_viscosity ) + ( 1. / ( elastic_shear_modulus * this->get_timestep() ) ) );
+                      const double initial_viscosity = out.viscosities[i];
+                      double viscoelastic = 0.0;
+  
+                      for (unsigned int c=0; c< volume_fractions.size(); ++c)
+                        {
+                          double elastic_shear_modulus = elastic_shear_moduli[c];
+                          viscoelastic += volume_fractions[c] * 1. / ( ( 1. / initial_viscosity ) + ( 1. / ( elastic_shear_modulus * dte ) ) );
+                        }
+                      out.viscosities[i] = viscoelastic; 
                     }
-                  out.viscosities[i] = viscoelastic; 
-                  
+
                   const double porosity = std::min(1.0, std::max(in.composition[i][porosity_idx],0.0));
                   out.viscosities[i] *= exp(- alpha_phi * porosity);
 
@@ -602,6 +609,13 @@ namespace aspect
                              "for background material and compositional fields, "
                              "for a total of N+1 values, where N is the number of compositional fields. "
                              "The default value of 75 GPa is representative of mantle rocks. Units: none.");
+          prm.declare_entry ("Elastic time step", "1.e3",
+                             Patterns::Double (0),
+                             "The elastic time step $dte$. Units: $yr$.");
+          prm.declare_entry ("Model is viscoelastic", "false",
+                             Patterns::Bool (),
+                             "Viscosity is modified according elastic parameters. Units: None ");
+          
         }
         prm.leave_subsection();
       }
@@ -681,7 +695,8 @@ namespace aspect
          elastic_shear_moduli = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Elastic shear moduli"))),
                                                                               n_fields,
                                                                               "Elastic shear moduli");
-
+         elastic_time_step = prm.get_double ("Elastic time step");
+         model_is_viscoelastic = prm.get_bool ("Model is viscoelastic");
 
         }
         prm.leave_subsection();

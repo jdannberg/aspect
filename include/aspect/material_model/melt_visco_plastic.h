@@ -166,7 +166,9 @@ namespace aspect
 
         // elasticity parameters
         std::vector<double> elastic_shear_moduli;
-
+        double elastic_time_step;
+        bool model_is_viscoelastic;
+        
         std::vector<double> compute_volume_fractions(
           const std::vector<double> &compositional_fields) const;
 
