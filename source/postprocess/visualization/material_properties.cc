@@ -21,7 +21,6 @@
 
 #include <aspect/postprocess/visualization/material_properties.h>
 #include <aspect/utilities.h>
-#include <deal.II/grid/grid_tools.h>
 
 #include <algorithm>
 
@@ -123,13 +122,7 @@ namespace aspect
 
             for (unsigned int c=0; c<this->n_compositional_fields(); ++c)
               in.composition[q][c] = input_data.solution_values[q][this->introspection().component_indices.compositional_fields[c]];
-
-            mid_point += evaluation_points[q]/n_quadrature_points;
           }
-
-        typename DoFHandler<dim>::active_cell_iterator cell;
-        cell = (GridTools::find_active_cell_around_point<> (this->get_mapping(), this->get_dof_handler(), mid_point)).first;
-        in.cell = &cell;
 
         this->get_material_model().evaluate(in, out);
 
