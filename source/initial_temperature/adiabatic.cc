@@ -133,6 +133,12 @@ namespace aspect
     {
 
       const double age_top = top_boundary_layer_age(position);
+        this->get_geometry_model().cartesian_to_other_coordinates(position, coordinate_system);
+
+      double age_top = age_function.value(Utilities::convert_array_to_point<dim>(point.get_coordinates()));
+      if (this->convert_output_to_years())
+    	age_top *= year_in_seconds;
+
       const double age_bottom = (this->convert_output_to_years() ? age_bottom_boundary_layer * year_in_seconds
                                  : age_bottom_boundary_layer);
 

@@ -194,6 +194,20 @@ namespace aspect
     template <int dim>
     double
     GrainSize<dim>::
+	get_boundary_area_change_work_fraction (const double temperature,
+			                                const unsigned int phase_index) const
+    {
+      if(use_constant_work_fraction)
+    	return boundary_area_change_work_fraction[phase_index];
+      else
+    	return std::exp (-2.0 * std::pow(temperature/1000.0, 2.9));
+    }
+
+
+
+    template <int dim>
+    double
+    GrainSize<dim>::
     grain_size_change (const double                  temperature,
                        const double                  pressure,
                        const std::vector<double>    &compositional_fields,
@@ -1052,6 +1066,12 @@ namespace aspect
                              "The geometric constant $c$ used in the paleowattmeter grain size reduction law. "
                              "List must have one more entry than the Phase transition depths. "
                              "Units: none.");
+          prm.declare_entry ("Use constant work fraction", "true",
+                             Patterns::Bool (),
+                             "A flag indicating whether the computation should use a constant "
+                             "work fraction for boundary area change for grain size reduction "
+                             "as given by the parameter of the same name (if true) or a temperature-dependent "
+                             "work fraction as given by Rozel et al. (2011) (if false).");
           prm.declare_entry ("Dislocation viscosity iteration threshold", "1e-3",
                              Patterns::Double (0.),
                              "We need to perform an iteration inside the computation "
@@ -1285,6 +1305,7 @@ namespace aspect
                                                   (Utilities::split_string_list(prm.get ("Work fraction for boundary area change")));
           geometric_constant                    = Utilities::string_to_double
                                                   (Utilities::split_string_list(prm.get ("Geometric constant")));
+          use_constant_work_fraction            = prm.get_bool ("Use constant work fraction");
 
           // rheology parameters
           dislocation_viscosity_iteration_threshold = prm.get_double("Dislocation viscosity iteration threshold");
