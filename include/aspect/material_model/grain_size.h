@@ -203,6 +203,7 @@ namespace aspect
          * convective instability. Geochemistry, Geophysics, Geosystems, 4(3).
          */
         bool use_paleowattmeter;
+        bool use_constant_work_fraction;
         std::vector<double> grain_boundary_energy;
         std::vector<double> boundary_area_change_work_fraction;
         std::vector<double> geometric_constant;
@@ -377,6 +378,13 @@ namespace aspect
          */
         void
         convert_log_grain_size (std::vector<double> &compositional_fields) const;
+
+        /**
+         * TODO
+         */
+        double
+		get_boundary_area_change_work_fraction (const double temperature,
+                                                const unsigned int phase_index) const;
 
         /**
          * list of depth, width and Clapeyron slopes for the different phase
