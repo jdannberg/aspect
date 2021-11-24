@@ -314,7 +314,7 @@ namespace aspect
           {
             name = prm.get ("Integration scheme");
 
-            if (name == "rk2")
+            if (name == "rk2" || "rk2 first order time")
               n_integrator_properties = Particle::Integrator::RK2<dim>::n_integrator_properties;
             else if (name == "rk4")
               n_integrator_properties = Particle::Integrator::RK4<dim>::n_integrator_properties;
