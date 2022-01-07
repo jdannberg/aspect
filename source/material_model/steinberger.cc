@@ -172,7 +172,7 @@ namespace aspect
     Steinberger<dim>::
     viscosity (const double temperature,
                const double /*pressure*/,
-               const std::vector<double> &,
+               const std::vector<double> &composition,
                const SymmetricTensor<2,dim> &,
                const Point<dim> &position) const
     {
@@ -190,8 +190,16 @@ namespace aspect
 
       // For an explanation on this formula see the Steinberger & Calderwood 2006 paper
       const double vis_lateral_exp = -1.0*lateral_viscosity_lookup->lateral_viscosity(depth)*delta_temperature/(temperature*adiabatic_temperature);
+      double vis_lateral = std::exp(vis_lateral_exp);
+
+      if (this->introspection().compositional_name_exists("ppv_phase"))
+        {
+          const unsigned int c = this->introspection().compositional_index_for_name("ppv_phase");
+          vis_lateral *= std::exp(composition[c] * std::log(ppv_viscosity_prefactor));
+        }
+
       // Limit the lateral viscosity variation to a reasonable interval
-      const double vis_lateral = std::max(std::min(std::exp(vis_lateral_exp),max_lateral_eta_variation),1/max_lateral_eta_variation);
+      vis_lateral = std::max(std::min(vis_lateral,max_lateral_eta_variation),1/max_lateral_eta_variation);
 
       const double vis_radial = radial_viscosity_lookup->radial_viscosity(depth);
 
@@ -247,7 +255,15 @@ namespace aspect
             mass_fractions.push_back(1.0);
           else
             {
-              mass_fractions = MaterialUtilities::compute_composition_fractions(in.composition[i], *composition_mask);
+              // We only want to compute mass/volume fractions for fields that are chemical compositions.
+              std::vector<double> chemical_compositions;
+              std::vector<typename Parameters<dim>::CompositionalFieldDescription> composition_descriptions = this->introspection().get_composition_descriptions();
+
+              for (unsigned int c=0; c<in.composition[i].size(); ++c)
+                if (composition_descriptions[c].type == Parameters<dim>::CompositionalFieldDescription::chemical_composition)
+                  chemical_compositions.push_back(in.composition[i][c]);
+
+              mass_fractions = MaterialUtilities::compute_composition_fractions(chemical_compositions, *composition_mask);
 
               // The function compute_volumes_from_masses expects as many mass_fractions as densities.
               // But the function compute_composition_fractions always adds another element at the start
@@ -262,10 +278,55 @@ namespace aspect
                                                                                true);
 
           MaterialUtilities::fill_averaged_equation_of_state_outputs(eos_outputs[i], mass_fractions, volume_fractions[i], i, out);
+          fill_prescribed_outputs(i, volume_fractions[i], in, out);
+
         }
 
       // fill additional outputs if they exist
       equation_of_state.fill_additional_outputs(in, volume_fractions, out);
+    }
+
+
+
+    template <int dim>
+    void
+    Steinberger<dim>::
+    fill_prescribed_outputs(const unsigned int q,
+                            const std::vector<double> &volume_fractions,
+                            const MaterialModel::MaterialModelInputs<dim> &in,
+                            MaterialModel::MaterialModelOutputs<dim> &out) const
+    {
+      // set up variable to interpolate prescribed field outputs onto compositional field
+      PrescribedFieldOutputs<dim> *prescribed_field_out = out.template get_additional_output<PrescribedFieldOutputs<dim> >();
+
+      if (this->introspection().compositional_name_exists("ppv_phase")
+          && prescribed_field_out != nullptr
+          && equation_of_state.get_material_lookup(0).has_dominant_phase())
+        {
+          const unsigned int dominant_material_index = distance(volume_fractions.begin(), max_element(volume_fractions.begin(), volume_fractions.end()));
+          const auto &material_lookup = equation_of_state.get_material_lookup(dominant_material_index);
+          const std::vector<std::string> &phase_names_one_lookup = material_lookup.get_dominant_phase_names();
+
+          unsigned int ppv_index = numbers::invalid_unsigned_int;
+          for (unsigned int i = 0; i < phase_names_one_lookup.size(); ++i)
+            if (phase_names_one_lookup[i] == "ppv")
+              ppv_index = i;
+
+          const unsigned int prescribed_field_index = this->introspection().compositional_index_for_name("ppv_phase");
+
+          if (material_lookup.dominant_phase(in.temperature[q], this->get_adiabatic_conditions().pressure(in.position[q])) == ppv_index)
+            prescribed_field_out->prescribed_field_outputs[q][prescribed_field_index] = 1.0;
+          else
+            prescribed_field_out->prescribed_field_outputs[q][prescribed_field_index] = 0.0;
+        }
+
+      // set up variable to interpolate prescribed field outputs onto compositional fields
+      if (this->introspection().compositional_name_exists("density_field")
+          && prescribed_field_out != nullptr)
+        {
+          const unsigned int projected_density_index = this->introspection().compositional_index_for_name("density_field");
+          prescribed_field_out->prescribed_field_outputs[q][projected_density_index] = out.densities[q];
+        }
     }
 
 
@@ -340,6 +401,11 @@ namespace aspect
                              Patterns::Double (0.),
                              "The value of the thermal conductivity $k$. "
                              "Units: \\si{\\watt\\per\\meter\\per\\kelvin}.");
+          prm.declare_entry ("Post-perovskite viscosity prefactor", "1.0",
+                             Patterns::Double (0.),
+                             "The factor the viscosity should be multiplied by "
+                             "if the material look-up indicates post-perovskite "
+                             "is the dominant phase. ");
 
           // Table lookup parameters
           EquationOfState::ThermodynamicTableLookup<dim>::declare_parameters(prm);
@@ -370,29 +436,41 @@ namespace aspect
           max_eta              = prm.get_double ("Maximum viscosity");
           max_lateral_eta_variation    = prm.get_double ("Maximum lateral viscosity variation");
           thermal_conductivity_value = prm.get_double ("Thermal conductivity");
+          ppv_viscosity_prefactor = prm.get_double ("Post-perovskite viscosity prefactor");
 
           // Parse the table lookup parameters
           equation_of_state.initialize_simulator (this->get_simulator());
           equation_of_state.parse_parameters(prm);
 
+          // Check if compositional fields represent a composition
+          std::vector<typename Parameters<dim>::CompositionalFieldDescription> composition_descriptions = this->introspection().get_composition_descriptions();
+          unsigned int n_chemical_fields = 0;
+
+          // All chemical compositional fields are assumed to represent mass fractions.
+          composition_mask = std::make_unique<ComponentMask> (this->n_compositional_fields(), false);
+          for (unsigned int c=0; c<this->n_compositional_fields(); ++c)
+            if (composition_descriptions[c].type == Parameters<dim>::CompositionalFieldDescription::chemical_composition)
+              {
+                composition_mask->set(c, true);
+                n_chemical_fields++;
+              }
+
           // Assign background field and do some error checking
           AssertThrow ((equation_of_state.number_of_lookups() == 1) ||
-                       (equation_of_state.number_of_lookups() == this->n_compositional_fields()) ||
-                       (equation_of_state.number_of_lookups() == this->n_compositional_fields() + 1),
+                       (equation_of_state.number_of_lookups() == n_chemical_fields) ||
+                       (equation_of_state.number_of_lookups() == n_chemical_fields + 1),
                        ExcMessage("The Steinberger material model assumes that all compositional "
-                                  "fields correspond to mass fractions of materials. There must either be "
+                                  "fields of the type chemical composition correspond to mass fractions of materials. There must either be "
                                   "one material lookup file, the same number of material lookup files "
-                                  "as compositional fields, or one additional file "
+                                  "as compositional fields of type chemical composition, or one additional file "
                                   "(if a background field is used). You have "
                                   + Utilities::int_to_string(equation_of_state.number_of_lookups())
                                   + " material data files, but there are "
-                                  + Utilities::int_to_string(this->n_compositional_fields())
+                                  + Utilities::int_to_string(n_chemical_fields)
                                   + " compositional fields. "));
 
-          has_background_field = (equation_of_state.number_of_lookups() == this->n_compositional_fields() + 1);
+          has_background_field = (equation_of_state.number_of_lookups() == n_chemical_fields + 1);
 
-          // All compositional fields are assumed to represent mass fractions.
-          composition_mask = std::make_unique<ComponentMask> (this->n_compositional_fields(), true);
 
           prm.leave_subsection();
         }
@@ -414,6 +492,13 @@ namespace aspect
     Steinberger<dim>::create_additional_named_outputs (MaterialModel::MaterialModelOutputs<dim> &out) const
     {
       equation_of_state.create_additional_named_outputs(out);
+
+      if (out.template get_additional_output<PrescribedFieldOutputs<dim> >() == nullptr)
+        {
+          const unsigned int n_points = out.n_evaluation_points();
+          out.additional_outputs.push_back(
+            std::make_unique<MaterialModel::PrescribedFieldOutputs<dim>> (n_points, this->n_compositional_fields()));
+        }
     }
 
   }

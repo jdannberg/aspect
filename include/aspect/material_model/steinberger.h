@@ -271,6 +271,7 @@ namespace aspect
         double min_eta;
         double max_eta;
         double max_lateral_eta_variation;
+        double ppv_viscosity_prefactor;
 
         /**
          * Information about the location of data files.
@@ -290,6 +291,16 @@ namespace aspect
          * viscosity profile.
          */
         std::unique_ptr<internal::RadialViscosityLookup> radial_viscosity_lookup;
+
+        /**
+         * A function that fills the diffusion additional output in the
+         * MaterialModelOutputs object that is handed over, if it exists.
+         * Does nothing otherwise.
+         */
+        void fill_prescribed_outputs (const unsigned int i,
+                                      const std::vector<double> &volume_fractions,
+                                      const MaterialModel::MaterialModelInputs<dim> &in,
+                                      MaterialModel::MaterialModelOutputs<dim> &out) const;
 
     };
   }
