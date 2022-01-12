@@ -681,6 +681,115 @@ namespace aspect
 
     template <int dim>
     void
+    DiffusionSystemBoundaryFace<dim>::execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                                              internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const
+    {
+      internal::Assembly::Scratch::AdvectionSystem<dim> &scratch = dynamic_cast<internal::Assembly::Scratch::AdvectionSystem<dim>& > (scratch_base);
+      internal::Assembly::CopyData::AdvectionSystem<dim> &data = dynamic_cast<internal::Assembly::CopyData::AdvectionSystem<dim>& > (data_base);
+
+      const Parameters<dim> &parameters = this->get_parameters();
+      const Introspection<dim> &introspection = this->introspection();
+      const FiniteElement<dim> &fe = this->get_fe();
+
+      const typename Simulator<dim>::AdvectionField advection_field = *scratch.advection_field;
+
+      const unsigned int face_no = scratch.face_number;
+      const typename DoFHandler<dim>::face_iterator face = scratch.cell->face(face_no);
+
+      const unsigned int n_q_points    = scratch.face_finite_element_values->n_quadrature_points;
+
+      if (!advection_field.is_discontinuous(introspection) || advection_field.is_temperature())
+        return;
+
+      // also have the number of dofs that correspond just to the element for
+      // the system we are currently trying to assemble
+      const unsigned int advection_dofs_per_cell = data.local_dof_indices.size();
+
+      Assert (advection_dofs_per_cell < scratch.face_finite_element_values->get_fe().dofs_per_cell, ExcInternalError());
+      Assert (scratch.face_grad_phi_field.size() == advection_dofs_per_cell, ExcInternalError());
+      Assert (scratch.face_phi_field.size() == advection_dofs_per_cell, ExcInternalError());
+
+      const unsigned int solution_component = advection_field.component_index(introspection);
+
+      const FEValuesExtractors::Scalar solution_field = advection_field.scalar_extractor(introspection);
+
+
+      if (this->get_fixed_composition_boundary_indicators().find(face->boundary_id())
+          != this->get_fixed_composition_boundary_indicators().end())
+        {
+          /*
+           * We are in the case of a Dirichlet composition boundary.
+           */
+
+          for (unsigned int q=0; q<n_q_points; ++q)
+            {
+              // precompute the values of shape functions and their gradients.
+              // We only need to look up values of shape functions if they
+              // belong to 'our' component. They are zero otherwise anyway.
+              // Note that we later only look at the values that we do set here.
+              for (unsigned int i=0, i_advection=0; i_advection<advection_dofs_per_cell; /*increment at end of loop*/)
+                {
+                  if (fe.system_to_component_index(i).first == solution_component)
+                    {
+                      scratch.face_grad_phi_field[i_advection] = (*scratch.face_finite_element_values)[solution_field].gradient (i, q);
+                      scratch.face_phi_field[i_advection]      = (*scratch.face_finite_element_values)[solution_field].value (i, q);
+                      ++i_advection;
+                    }
+                  ++i;
+                }
+
+              const double dirichlet_value = this->get_boundary_composition_manager().boundary_composition(
+                                               face->boundary_id(),
+                                               scratch.face_finite_element_values->quadrature_point(q),
+                                               advection_field.compositional_variable);
+
+              /**
+               * The discontinuous Galerkin method uses 2 types of jumps over edges:
+               * undirected and directed jumps. Undirected jumps are dependent only
+               * on the order of the numbering of cells. Directed jumps are dependent
+               * on the direction of the flow. For a diffusion system, there is no flow.
+               */
+
+              for (unsigned int i=0; i<advection_dofs_per_cell; ++i)
+                {
+                  data.local_rhs(i)
+                  += (- parameters.diffusion_length_scale * parameters.diffusion_length_scale
+                      * scratch.face_grad_phi_field[i]
+                      * scratch.face_finite_element_values->normal_vector(q)
+                      * dirichlet_value
+                     )
+                     *
+                     scratch.face_finite_element_values->JxW(q);
+
+                  // local_matrix terms
+                  for (unsigned int j=0; j<advection_dofs_per_cell; ++j)
+                    {
+                      data.local_matrix(i,j)
+                      += (- parameters.diffusion_length_scale * parameters.diffusion_length_scale
+                          * scratch.face_grad_phi_field[i]
+                          * scratch.face_finite_element_values->normal_vector(q)
+                          * scratch.face_phi_field[j]
+
+                          - parameters.diffusion_length_scale * parameters.diffusion_length_scale
+                          * scratch.face_grad_phi_field[j]
+                          * scratch.face_finite_element_values->normal_vector(q)
+                          * scratch.face_phi_field[i]
+                         )
+                         * scratch.face_finite_element_values->JxW(q);
+                    }
+                }
+            }
+        }
+      else
+        {
+          // Neumann temperature term - no non-zero contribution as only homogeneous Neumann boundary conditions are implemented elsewhere for temperature
+        }
+    }
+
+
+
+    template <int dim>
+    void
     AdvectionSystemInteriorFace<dim>::execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
                                               internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const
     {
@@ -1396,6 +1505,339 @@ namespace aspect
             }
         }
     }
+
+
+
+    template <int dim>
+    void
+    DiffusionSystemInteriorFace<dim>::execute(internal::Assembly::Scratch::ScratchBase<dim>   &scratch_base,
+                                              internal::Assembly::CopyData::CopyDataBase<dim> &data_base) const
+    {
+      internal::Assembly::Scratch::AdvectionSystem<dim> &scratch = dynamic_cast<internal::Assembly::Scratch::AdvectionSystem<dim>& > (scratch_base);
+      internal::Assembly::CopyData::AdvectionSystem<dim> &data = dynamic_cast<internal::Assembly::CopyData::AdvectionSystem<dim>& > (data_base);
+
+      const Parameters<dim> &parameters = this->get_parameters();
+      const Introspection<dim> &introspection = this->introspection();
+      const FiniteElement<dim> &fe = this->get_fe();
+
+      const typename DoFHandler<dim>::active_cell_iterator cell = scratch.cell;
+      const unsigned int face_no = scratch.face_number;
+      const typename DoFHandler<dim>::face_iterator face = cell->face(face_no);
+
+      const typename Simulator<dim>::AdvectionField advection_field = *scratch.advection_field;
+
+      const unsigned int n_q_points    = scratch.face_finite_element_values->n_quadrature_points;
+
+      if (!advection_field.is_discontinuous(introspection) || advection_field.is_temperature())
+        return;
+
+      // also have the number of dofs that correspond just to the element for
+      // the system we are currently trying to assemble
+      const unsigned int advection_dofs_per_cell = data.local_dof_indices.size();
+      const unsigned int dofs_per_cell = fe.dofs_per_cell;
+
+      Assert (advection_dofs_per_cell < scratch.face_finite_element_values->get_fe().dofs_per_cell, ExcInternalError());
+      Assert (scratch.face_grad_phi_field.size() == advection_dofs_per_cell, ExcInternalError());
+      Assert (scratch.face_phi_field.size() == advection_dofs_per_cell, ExcInternalError());
+      Assert (n_q_points == scratch.subface_finite_element_values->n_quadrature_points, ExcInternalError());
+      Assert (n_q_points == scratch.neighbor_face_finite_element_values->n_quadrature_points, ExcInternalError());
+
+      const unsigned int solution_component = advection_field.component_index(introspection);
+
+      const FEValuesExtractors::Scalar solution_field = advection_field.scalar_extractor(introspection);
+
+      // interior face or periodic face - no contribution on RHS
+
+      const typename DoFHandler<dim>::cell_iterator
+      neighbor = cell->neighbor_or_periodic_neighbor (face_no);
+      // note: "neighbor" defined above is NOT active_cell_iterator, so this includes cells that are refined
+      // for example: cell with periodic boundary.
+      Assert (neighbor.state() == IteratorState::valid,
+              ExcInternalError());
+      const bool cell_has_periodic_neighbor = cell->has_periodic_neighbor (face_no);
+
+      if (!neighbor->has_children())
+        {
+          if (neighbor->level () == cell->level () &&
+              neighbor->is_active() &&
+              (((neighbor->is_locally_owned()) && (cell->index() < neighbor->index()))
+               ||
+               ((!neighbor->is_locally_owned()) && (cell->subdomain_id() < neighbor->subdomain_id()))))
+            {
+              Assert (cell->is_locally_owned(), ExcInternalError());
+              // cell and neighbor are equal-sized, and cell has been chosen to assemble this face, so calculate from cell
+
+              const unsigned int neighbor2 =
+                (cell->has_periodic_neighbor(face_no)
+                 ?
+                 // how does the periodic neighbor talk about this cell?
+                 cell->periodic_neighbor_of_periodic_neighbor(face_no)
+                 :
+                 // how does the neighbor talk about this cell?
+                 cell->neighbor_of_neighbor(face_no));
+
+              // set up neighbor values
+              scratch.neighbor_face_finite_element_values->reinit (neighbor, neighbor2);
+
+              std::vector<types::global_dof_index> neighbor_dof_indices (dofs_per_cell);
+              // get all dof indices on the neighbor, then extract those
+              // that correspond to the solution_field we are interested in
+              neighbor->get_dof_indices (neighbor_dof_indices);
+              for (unsigned int i=0, i_advection=0; i_advection<advection_dofs_per_cell;/*increment at end of loop*/)
+                {
+                  if (fe.system_to_component_index(i).first == solution_component)
+                    {
+                      data.neighbor_dof_indices[face_no * GeometryInfo<dim>::max_children_per_face][i_advection] = neighbor_dof_indices[i];
+                      ++i_advection;
+                    }
+                  ++i;
+                }
+              data.assembled_matrices[face_no * GeometryInfo<dim>::max_children_per_face] = true;
+
+              for (unsigned int q=0; q<n_q_points; ++q)
+                {
+                  // precompute the values of shape functions and their gradients.
+                  // We only need to look up values of shape functions if they
+                  // belong to 'our' component. They are zero otherwise anyway.
+                  // Note that we later only look at the values that we do set here.
+                  for (unsigned int i=0, i_advection=0; i_advection<advection_dofs_per_cell;/*increment at end of loop*/)
+                    {
+                      if (fe.system_to_component_index(i).first == solution_component)
+                        {
+                          scratch.face_grad_phi_field[i_advection]          = (*scratch.face_finite_element_values)[solution_field].gradient (i, q);
+                          scratch.face_phi_field[i_advection]               = (*scratch.face_finite_element_values)[solution_field].value (i, q);
+                          scratch.neighbor_face_grad_phi_field[i_advection] = (*scratch.neighbor_face_finite_element_values)[solution_field].gradient (i, q);
+                          scratch.neighbor_face_phi_field[i_advection]      = (*scratch.neighbor_face_finite_element_values)[solution_field].value (i, q);
+                          ++i_advection;
+                        }
+                      ++i;
+                    }
+
+                  const Tensor<1,dim> diffusion_term = 0.5 * parameters.diffusion_length_scale * parameters.diffusion_length_scale
+                                                       * scratch.face_finite_element_values->normal_vector(q);
+
+                  const double penalty = parameters.discontinuous_penalty / approximate_face_measure(face)
+                                         * std::pow(parameters.composition_degree * parameters.diffusion_length_scale, 2);
+
+                  for (unsigned int i=0; i<advection_dofs_per_cell; ++i)
+                    {
+                      for (unsigned int j=0; j<advection_dofs_per_cell; ++j)
+                        {
+                          data.local_matrix(i,j)
+                          += (- diffusion_term
+                              * scratch.face_grad_phi_field[i]
+                              * scratch.face_phi_field[j]
+
+                              - diffusion_term
+                              * scratch.face_grad_phi_field[j]
+                              * scratch.face_phi_field[i]
+
+                              + penalty
+                              * scratch.face_phi_field[i]
+                              * scratch.face_phi_field[j]
+                             )
+                             * scratch.face_finite_element_values->JxW(q);
+
+                          data.local_matrices_int_ext[face_no * GeometryInfo<dim>::max_children_per_face](i,j)
+                          += (- diffusion_term
+                              * scratch.neighbor_face_grad_phi_field[j]
+                              * scratch.face_phi_field[i]
+
+                              + diffusion_term
+                              * scratch.face_grad_phi_field[i]
+                              * scratch.neighbor_face_phi_field[j]
+
+                              - penalty
+                              * scratch.neighbor_face_phi_field[j]
+                              * scratch.face_phi_field[i]
+                             )
+                             * scratch.face_finite_element_values->JxW(q);
+
+                          data.local_matrices_ext_int[face_no * GeometryInfo<dim>::max_children_per_face](i,j)
+                          += (diffusion_term
+                              * scratch.face_grad_phi_field[j]
+                              * scratch.neighbor_face_phi_field[i]
+
+                              - diffusion_term
+                              * scratch.neighbor_face_grad_phi_field[i]
+                              * scratch.face_phi_field[j]
+
+                              - penalty
+                              * scratch.face_phi_field[j]
+                              * scratch.neighbor_face_phi_field[i]
+                             )
+                             * scratch.face_finite_element_values->JxW(q);
+
+                          data.local_matrices_ext_ext[face_no * GeometryInfo<dim>::max_children_per_face](i,j)
+                          += (diffusion_term
+                              * scratch.neighbor_face_grad_phi_field[i]
+                              * scratch.neighbor_face_phi_field[j]
+
+                              + diffusion_term
+                              * scratch.neighbor_face_grad_phi_field[j]
+                              * scratch.neighbor_face_phi_field[i]
+
+                              + penalty
+                              * scratch.neighbor_face_phi_field[i]
+                              * scratch.neighbor_face_phi_field[j]
+                             )
+                             * scratch.face_finite_element_values->JxW(q);
+                        }
+                    }
+                }
+            }
+          else
+            {
+              /* neighbor is taking responsibility for assembly of this face, because
+               * either (1) neighbor is coarser, or
+               *        (2) neighbor is equally-sized and
+               *           (a) neighbor is on a different subdomain, with lower subdmain_id(), or
+               *           (b) neighbor is on the same subdomain and has lower index().
+              */
+            }
+        }
+      // neighbor has children, so always assemble from here.
+      else
+        {
+          const unsigned int neighbor2 =
+            (cell_has_periodic_neighbor
+             ?
+             cell->periodic_neighbor_face_no(face_no)
+             :
+             cell->neighbor_face_no(face_no));
+
+          // Loop over subfaces. We know that the neighbor is finer, so we could loop over the subfaces of the current
+          // face. but if we are at a periodic boundary, then the face of the current cell has no children, so instead use
+          // the children of the periodic neighbor's corresponding face since we know that the letter does indeed have
+          // children (because we know that the neighbor is refined).
+          typename DoFHandler<dim>::face_iterator neighbor_face=neighbor->face(neighbor2);
+          for (unsigned int subface_no=0; subface_no<neighbor_face->n_children(); ++subface_no)
+            {
+              const typename DoFHandler<dim>::active_cell_iterator neighbor_child
+                = ( cell_has_periodic_neighbor
+                    ?
+                    cell->periodic_neighbor_child_on_subface(face_no,subface_no)
+                    :
+                    cell->neighbor_child_on_subface (face_no, subface_no));
+
+              // set up subface values
+              scratch.subface_finite_element_values->reinit (cell, face_no, subface_no);
+
+              // set up neighbor values
+              scratch.neighbor_face_finite_element_values->reinit (neighbor_child, neighbor2);
+
+              std::vector<types::global_dof_index> neighbor_dof_indices (fe.dofs_per_cell);
+              // get all dof indices on the neighbor, then extract those
+              // that correspond to the solution_field we are interested in
+              neighbor_child->get_dof_indices (neighbor_dof_indices);
+              for (unsigned int i=0, i_advection=0; i_advection<advection_dofs_per_cell;/*increment at end of loop*/)
+                {
+                  if (fe.system_to_component_index(i).first == solution_component)
+                    {
+                      data.neighbor_dof_indices[face_no * GeometryInfo<dim>::max_children_per_face + subface_no][i_advection] = neighbor_dof_indices[i];
+                      ++i_advection;
+                    }
+                  ++i;
+                }
+              data.assembled_matrices[face_no * GeometryInfo<dim>::max_children_per_face + subface_no] = true;
+
+              for (unsigned int q=0; q<n_q_points; ++q)
+                {
+                  // precompute the values of shape functions and their gradients.
+                  // We only need to look up values of shape functions if they
+                  // belong to 'our' component. They are zero otherwise anyway.
+                  // Note that we later only look at the values that we do set here.
+                  for (unsigned int i=0, i_advection=0; i_advection<advection_dofs_per_cell; /*increment at end of loop*/)
+                    {
+                      if (fe.system_to_component_index(i).first == solution_component)
+                        {
+                          scratch.face_grad_phi_field[i_advection]          = (*scratch.subface_finite_element_values)[solution_field].gradient (i, q);
+                          scratch.face_phi_field[i_advection]               = (*scratch.subface_finite_element_values)[solution_field].value (i, q);
+                          scratch.neighbor_face_grad_phi_field[i_advection] = (*scratch.neighbor_face_finite_element_values)[solution_field].gradient (i, q);
+                          scratch.neighbor_face_phi_field[i_advection]      = (*scratch.neighbor_face_finite_element_values)[solution_field].value (i, q);
+                          ++i_advection;
+                        }
+                      ++i;
+                    }
+
+                  const Tensor<1,dim> diffusion_term = 0.5 * parameters.diffusion_length_scale * parameters.diffusion_length_scale
+                                                       * scratch.subface_finite_element_values->normal_vector(q);
+
+                  const double face_measure = std::min(approximate_face_measure(face),
+                                                       approximate_face_measure(neighbor_child->face(neighbor2)));
+                  const double penalty = parameters.discontinuous_penalty / face_measure
+                                         * std::pow(parameters.composition_degree * parameters.diffusion_length_scale, 2);
+
+                  for (unsigned int i=0; i<advection_dofs_per_cell; ++i)
+                    {
+                      for (unsigned int j=0; j<advection_dofs_per_cell; ++j)
+                        {
+                          data.local_matrix(i,j)
+                          += (- diffusion_term
+                              * scratch.face_grad_phi_field[i]
+                              * scratch.face_phi_field[j]
+
+                              - diffusion_term
+                              * scratch.face_grad_phi_field[j]
+                              * scratch.face_phi_field[i]
+
+                              + penalty
+                              * scratch.face_phi_field[i]
+                              * scratch.face_phi_field[j]
+                             )
+                             * scratch.subface_finite_element_values->JxW(q);
+
+                          data.local_matrices_int_ext[face_no * GeometryInfo<dim>::max_children_per_face + subface_no](i,j)
+                          += (- diffusion_term
+                              * scratch.neighbor_face_grad_phi_field[j]
+                              * scratch.face_phi_field[i]
+
+                              + diffusion_term
+                              * scratch.face_grad_phi_field[i]
+                              * scratch.neighbor_face_phi_field[j]
+
+                              - penalty
+                              * scratch.neighbor_face_phi_field[j]
+                              * scratch.face_phi_field[i]
+
+                             )
+                             * scratch.subface_finite_element_values->JxW(q);
+
+                          data.local_matrices_ext_int[face_no * GeometryInfo<dim>::max_children_per_face + subface_no](i,j)
+                          += (diffusion_term
+                              * scratch.face_grad_phi_field[j]
+                              * scratch.neighbor_face_phi_field[i]
+
+                              - diffusion_term
+                              * scratch.neighbor_face_grad_phi_field[i]
+                              * scratch.face_phi_field[j]
+
+                              - penalty
+                              * scratch.face_phi_field[j]
+                              * scratch.neighbor_face_phi_field[i]
+                             )
+                             * scratch.subface_finite_element_values->JxW(q);
+
+                          data.local_matrices_ext_ext[face_no * GeometryInfo<dim>::max_children_per_face + subface_no](i,j)
+                          += (diffusion_term
+                              * scratch.neighbor_face_grad_phi_field[i]
+                              * scratch.neighbor_face_phi_field[j]
+
+                              + diffusion_term
+                              * scratch.neighbor_face_grad_phi_field[j]
+                              * scratch.neighbor_face_phi_field[i]
+
+                              + penalty
+                              * scratch.neighbor_face_phi_field[i]
+                              * scratch.neighbor_face_phi_field[j]
+                             )
+                             * scratch.subface_finite_element_values->JxW(q);
+                        }
+                    }
+                }
+            }
+        }
+    }
   }
 } // namespace aspect
 
@@ -1408,7 +1850,9 @@ namespace aspect
   template class AdvectionSystem<dim>; \
   template class DiffusionSystem<dim>; \
   template class AdvectionSystemBoundaryFace<dim>; \
+  template class DiffusionSystemBoundaryFace<dim>; \
   template class AdvectionSystemInteriorFace<dim>; \
+  template class DiffusionSystemInteriorFace<dim>; \
   template class AdvectionSystemBoundaryHeatFlux<dim>;
 
     ASPECT_INSTANTIATE(INSTANTIATE)

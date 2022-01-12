@@ -202,8 +202,15 @@ namespace aspect
     // add the diffusion assemblers if we have fields that use this method
     if (std::find(parameters.compositional_field_methods.begin(), parameters.compositional_field_methods.end(),
                   Parameters<dim>::AdvectionFieldMethod::prescribed_field_with_diffusion) != parameters.compositional_field_methods.end())
-      assemblers->advection_system.push_back(
-        std::make_unique<aspect::Assemblers::DiffusionSystem<dim>>());
+      {
+        assemblers->advection_system.push_back(
+          std::make_unique<aspect::Assemblers::DiffusionSystem<dim>>());
+
+        if (parameters.use_discontinuous_composition_discretization)
+          assemblers->advection_system_on_interior_face.push_back(
+            std::make_unique<aspect::Assemblers::DiffusionSystemInteriorFace<dim>>());
+
+      }
 
     if (parameters.use_discontinuous_temperature_discretization ||
         parameters.use_discontinuous_composition_discretization)
