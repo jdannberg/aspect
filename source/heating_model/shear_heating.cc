@@ -54,9 +54,22 @@ namespace aspect
              :
              material_model_inputs.strain_rate[q]);
 
+          // Compute yield stress
+          const double sin_phi = std::sin(friction_angle);
+          const double cos_phi = std::cos(friction_angle);
+          const double pressure = std::max(material_model_inputs.pressure[q], 0.0);
+
+          const double deviatoric_stress = 2 * material_model_outputs.viscosities[q] * std::sqrt(std::fabs(second_invariant(deviatoric_strain_rate)));
+          const double yield_stress = ( (dim==3)
+                                        ?
+                                        ( 6.0 * cohesion * cos_phi + 6.0 * pressure * sin_phi) / (std::sqrt(3.0) * (3.0 + sin_phi))
+                                        :
+                                        cohesion * cos_phi + pressure * sin_phi);
+
+          const double scaling_factor = std::max(deviatoric_stress / yield_stress, 1.0);
+
           const SymmetricTensor<2,dim> stress =
-            2 * material_model_outputs.viscosities[q] *
-            deviatoric_strain_rate;
+            2 * material_model_outputs.viscosities[q] * deviatoric_strain_rate / scaling_factor;
 
           heating_model_outputs.heating_source_terms[q] = stress * deviatoric_strain_rate;
 
@@ -70,6 +83,56 @@ namespace aspect
           heating_model_outputs.lhs_latent_heat_terms[q] = 0.0;
         }
     }
+
+
+    template <int dim>
+    void
+    ShearHeating<dim>::declare_parameters (ParameterHandler &prm)
+    {
+      prm.enter_subsection("Heating model");
+      {
+        prm.enter_subsection("Shear heating");
+        {
+          prm.declare_entry ("Cohesion for maximum shear stress", "2e100",
+                             Patterns::Double (0),
+                             "Cohesion for maximum shear stress that should be used for the computation "
+                             "of shear heating. It can be useful to limit the shear stress "
+                             "in models where velocities are prescribed, and actual stresses "
+                             "in the Earth would be lower than the stresses introduced by the "
+                             "boundary conditions. "
+                             "Units: Pa.");
+          prm.declare_entry ("Friction angle for maximum shear stress", "0",
+                             Patterns::Double (0),
+                             "Friction angle for maximum shear stress that should be used for the computation "
+                             "of shear heating. It can be useful to limit the shear stress "
+                             "in models where velocities are prescribed, and actual stresses "
+                             "in the Earth would be lower than the stresses introduced by the "
+                             "boundary conditions. "
+                             "Units: none.");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
+    }
+
+
+
+    template <int dim>
+    void
+    ShearHeating<dim>::parse_parameters (ParameterHandler &prm)
+    {
+      prm.enter_subsection("Heating model");
+      {
+        prm.enter_subsection("Shear heating");
+        {
+          cohesion = prm.get_double ("Cohesion for maximum shear stress");
+          friction_angle = prm.get_double ("Friction angle for maximum shear stress");
+        }
+        prm.leave_subsection();
+      }
+      prm.leave_subsection();
+    }
+
 
 
 
