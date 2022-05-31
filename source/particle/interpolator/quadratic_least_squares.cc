@@ -519,8 +519,10 @@ namespace aspect
                     // Overshoot and undershoot correction of interpolated particle property.
                     if (use_quadratic_least_squares_limiter[property_index])
                       {
-                        Assert(interpolated_value >= property_minimums[property_index] - std::max(std::abs(property_minimums[property_index]), std::abs(property_maximums[property_index])) * 10. * std::numeric_limits<double>::epsilon(), ExcInternalError());
-                        Assert(interpolated_value <= property_maximums[property_index] + std::max(std::abs(property_minimums[property_index]), std::abs(property_maximums[property_index])) * 10. * std::numeric_limits<double>::epsilon(), ExcInternalError());
+                        Assert(interpolated_value >= property_minimums[property_index] - std::max(std::abs(property_minimums[property_index]), std::abs(property_maximums[property_index])) * 1e-7,
+ExcMessage("Particle interpolator limiter algorithm failed. Relative difference: " + std::to_string((property_minimums[property_index]-interpolated_value)/property_minimums[property_index]) + "."));
+                        Assert(interpolated_value <= property_maximums[property_index] + std::max(std::abs(property_minimums[property_index]), std::abs(property_maximums[property_index])) * 1e-7,
+ExcMessage("Particle interpolator limiter algorithm failed. Particle maximum: " + std::to_string(property_maximums[property_index]) + ". Interpolated value: " + std::to_string(interpolated_value) + "."));
                         // This chopping is done to avoid values that are just outside
                         // of the limiting bounds.
                         interpolated_value = std::min(interpolated_value, property_maximums[property_index]);
