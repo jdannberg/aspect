@@ -877,7 +877,6 @@ namespace aspect
             }
 
           out.densities[i] = density(in.temperature[i], pressure, in.composition[i], in.position[i]);
-          out.thermal_conductivities[i] = k_value;
           out.compressibilities[i] = compressibility(in.temperature[i], pressure, composition, in.position[i]);
 
           if (DislocationViscosityOutputs<dim> *disl_viscosities_out = out.template get_additional_output<DislocationViscosityOutputs<dim>>())
@@ -971,6 +970,11 @@ namespace aspect
 
           out.thermal_expansion_coefficients[i] = std::max(std::min(out.thermal_expansion_coefficients[i],max_thermal_expansivity),min_thermal_expansivity);
           out.specific_heat[i] = std::max(std::min(out.specific_heat[i],max_specific_heat),min_specific_heat);
+
+          out.thermal_conductivities[i] = k_value * std::pow(298.0/in.temperature[i], 0.33)
+                                          * std::exp(-(4.0 * 1.2 + 1./3.) * out.thermal_expansion_coefficients[i] * (in.temperature[i] - 298.0))
+										  * (1. + 4. * pressure / 1.35e11)
+										  + 0.01753 - 0.00010365 * in.temperature[i] + 2.2451e-7 * std::pow(in.temperature[i], 2) - 3.407e-11 * std::pow(in.temperature[i], 3);
         }
     }
 
