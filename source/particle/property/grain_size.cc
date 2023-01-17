@@ -39,7 +39,7 @@ namespace aspect
 
       template <int dim>
       void
-	  GrainSize<dim>::initialize ()
+      GrainSize<dim>::initialize ()
       {
         material_inputs  = MaterialModel::MaterialModelInputs<dim>(1, this->n_compositional_fields());
         material_outputs = MaterialModel::MaterialModelOutputs<dim>(1, this->n_compositional_fields());
@@ -52,7 +52,7 @@ namespace aspect
 
       template <int dim>
       void
-	  GrainSize<dim>::initialize_one_particle_property(const Point<dim> &position,
+      GrainSize<dim>::initialize_one_particle_property(const Point<dim> &position,
                                                        std::vector<double> &data) const
       {
         // Set the initial composition to the initial grain size.
@@ -63,7 +63,7 @@ namespace aspect
 
       template <int dim>
       void
-	  GrainSize<dim>::update_particle_property(const unsigned int data_position,
+      GrainSize<dim>::update_particle_property(const unsigned int data_position,
                                                const Vector<double> &solution,
                                                const std::vector<Tensor<1,dim>> &gradients,
                                                typename ParticleHandler<dim>::particle_iterator &particle) const
@@ -104,7 +104,7 @@ namespace aspect
 
       template <int dim>
       InitializationModeForLateParticles
-	  GrainSize<dim>::late_initialization_mode () const
+      GrainSize<dim>::late_initialization_mode () const
       {
         return interpolate_respect_boundary;
       }
@@ -113,7 +113,7 @@ namespace aspect
 
       template <int dim>
       UpdateTimeFlags
-	  GrainSize<dim>::need_update() const
+      GrainSize<dim>::need_update() const
       {
         return update_time_step;
       }
@@ -122,7 +122,7 @@ namespace aspect
 
       template <int dim>
       UpdateFlags
-	  GrainSize<dim>::get_needed_update_flags () const
+      GrainSize<dim>::get_needed_update_flags () const
       {
         return update_values | update_gradients;
       }
@@ -131,7 +131,7 @@ namespace aspect
 
       template <int dim>
       std::vector<std::pair<std::string, unsigned int>>
-	  GrainSize<dim>::get_property_information() const
+      GrainSize<dim>::get_property_information() const
       {
         std::vector<std::pair<std::string,unsigned int>> property_information;
 

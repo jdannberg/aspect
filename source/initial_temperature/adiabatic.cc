@@ -45,7 +45,7 @@ namespace aspect
 
       double age_top = age_function.value(Utilities::convert_array_to_point<dim>(point.get_coordinates()));
       if (this->convert_output_to_years())
-    	age_top *= year_in_seconds;
+        age_top *= year_in_seconds;
 
       const double age_bottom = (this->convert_output_to_years() ? age_bottom_boundary_layer * year_in_seconds
                                  : age_bottom_boundary_layer);
@@ -379,7 +379,7 @@ namespace aspect
             }
           prm.enter_subsection("Age function");
           {
-        	coordinate_system = Utilities::Coordinates::string_to_coordinate_system(prm.get("Coordinate system"));
+            coordinate_system = Utilities::Coordinates::string_to_coordinate_system(prm.get("Coordinate system"));
           }
           try
             {

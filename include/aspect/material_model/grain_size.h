@@ -383,7 +383,7 @@ namespace aspect
          * TODO
          */
         double
-		get_boundary_area_change_work_fraction (const double temperature,
+        get_boundary_area_change_work_fraction (const double temperature,
                                                 const unsigned int phase_index) const;
 
         /**

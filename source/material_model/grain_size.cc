@@ -199,13 +199,13 @@ namespace aspect
     template <int dim>
     double
     GrainSize<dim>::
-	get_boundary_area_change_work_fraction (const double temperature,
-			                                const unsigned int phase_index) const
+    get_boundary_area_change_work_fraction (const double temperature,
+                                            const unsigned int phase_index) const
     {
-      if(use_constant_work_fraction)
-    	return boundary_area_change_work_fraction[phase_index];
+      if (use_constant_work_fraction)
+        return boundary_area_change_work_fraction[phase_index];
       else
-    	return std::exp (-2.0 * std::pow(temperature/1000.0, 2.9));
+        return std::exp (-2.0 * std::pow(temperature/1000.0, 2.9));
     }
 
 
@@ -973,8 +973,8 @@ namespace aspect
 
           out.thermal_conductivities[i] = k_value * std::pow(298.0/in.temperature[i], 0.33)
                                           * std::exp(-(4.0 * 1.2 + 1./3.) * out.thermal_expansion_coefficients[i] * (in.temperature[i] - 298.0))
-										  * (1. + 4. * pressure / 1.35e11)
-										  + 0.01753 - 0.00010365 * in.temperature[i] + 2.2451e-7 * std::pow(in.temperature[i], 2) - 3.407e-11 * std::pow(in.temperature[i], 3);
+                                          * (1. + 4. * pressure / 1.35e11)
+                                          + 0.01753 - 0.00010365 * in.temperature[i] + 2.2451e-7 * std::pow(in.temperature[i], 2) - 3.407e-11 * std::pow(in.temperature[i], 3);
         }
     }
 

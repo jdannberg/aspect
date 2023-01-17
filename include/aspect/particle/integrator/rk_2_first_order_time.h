@@ -64,8 +64,8 @@ namespace aspect
           void
           local_integrate_step(const typename ParticleHandler<dim>::particle_iterator &begin_particle,
                                const typename ParticleHandler<dim>::particle_iterator &end_particle,
-                               const std::vector<Tensor<1,dim> > &old_velocities,
-                               const std::vector<Tensor<1,dim> > &velocities,
+                               const std::vector<Tensor<1,dim>> &old_velocities,
+                               const std::vector<Tensor<1,dim>> &velocities,
                                const double dt) override;
 
           /**
@@ -120,7 +120,7 @@ namespace aspect
            * used in the second step and transferred to another process if
            * the particle leaves the domain during the first step.
            */
-          std::map<types::particle_index, Point<dim> >   loc0;
+          std::map<types::particle_index, Point<dim>>   loc0;
 
       };
 
@@ -129,4 +129,3 @@ namespace aspect
 }
 
 #endif
-
