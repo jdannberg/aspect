@@ -243,10 +243,19 @@ namespace aspect
 
     std::vector<double> current_residual(introspection.n_compositional_fields,0.0);
 
+    // If the field is a stress field, we want to include all stress components in the computation of the residual
+    double stress_initial_residual = 0.0;
+    const std::vector<unsigned int> stress_indices = introspection.get_indices_for_fields_of_type(Parameters<dim>::CompositionalFieldDescription::stress);
+
     if (compute_initial_residual)
       {
         Assert(initial_residual != nullptr, ExcInternalError());
         Assert(initial_residual->size() == introspection.n_compositional_fields, ExcInternalError());
+
+        const double n_stress_fields = stress_indices.size();
+
+        for (auto &c : stress_indices)
+          stress_initial_residual += system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm() / n_stress_fields;
       }
 
     std::vector<AdvectionField> fields_advected_by_particles;
@@ -278,7 +287,9 @@ namespace aspect
 
               assemble_advection_system (adv_field);
 
-              if (compute_initial_residual)
+              if (compute_initial_residual && std::find(stress_indices.begin(), stress_indices.end(), c) != stress_indices.end())
+                (*initial_residual)[c] = stress_initial_residual;
+              else if (compute_initial_residual)
                 (*initial_residual)[c] = system_rhs.block(introspection.block_indices.compositional_fields[c]).l2_norm();
 
               current_residual[c] = solve_advection(adv_field);
