@@ -942,7 +942,9 @@ namespace aspect
       {
         Assert(volume_fractions.size() == parameter_values.size(),
                ExcMessage ("The volume fractions and parameter values vectors used for averaging "
-                           "have to have the same length!"));
+                           "have to have the same length! There are " +
+                           Utilities::int_to_string(volume_fractions.size()) + " volume fractions and " +
+                           Utilities::int_to_string(parameter_values.size()) + " parameter values."));
 
         double averaged_parameter = 0.0;
 
@@ -1270,7 +1272,7 @@ namespace aspect
       PhaseFunction<dim>::parse_parameters (ParameterHandler &prm)
       {
         // Establish that a background field is required here
-        const bool has_background_field = true;
+        const bool has_background_field = false;
 
         // Retrieve the list of composition names
         const std::vector<std::string> list_of_composition_names = this->introspection().get_composition_names();
