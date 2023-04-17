@@ -166,39 +166,6 @@ namespace aspect
 
 
     template <int dim>
-    double
-    Steinberger<dim>::
-    viscosity (const double temperature,
-               const double /*pressure*/,
-               const std::vector<double> &,
-               const SymmetricTensor<2,dim> &,
-               const Point<dim> &position) const
-    {
-      const double depth = this->get_geometry_model().depth(position);
-      const double adiabatic_temperature = this->get_adiabatic_conditions().temperature(position);
-
-      double delta_temperature;
-      if (use_lateral_average_temperature)
-        {
-          const unsigned int idx = static_cast<unsigned int>((average_temperature.size()-1) * depth / this->get_geometry_model().maximal_depth());
-          delta_temperature = temperature-average_temperature[idx];
-        }
-      else
-        delta_temperature = temperature-adiabatic_temperature;
-
-      // For an explanation on this formula see the Steinberger & Calderwood 2006 paper
-      const double vis_lateral_exp = -1.0*lateral_viscosity_lookup->lateral_viscosity(depth)*delta_temperature/(temperature*adiabatic_temperature);
-      // Limit the lateral viscosity variation to a reasonable interval
-      const double vis_lateral = std::max(std::min(std::exp(vis_lateral_exp),max_lateral_eta_variation),1/max_lateral_eta_variation);
-
-      const double vis_radial = radial_viscosity_lookup->radial_viscosity(depth);
-
-      return std::max(std::min(vis_lateral * vis_radial,max_eta),min_eta);
-    }
-
-
-
-    template <int dim>
     bool
     Steinberger<dim>::
     is_compressible () const
@@ -271,9 +238,6 @@ namespace aspect
 
       for (unsigned int i=0; i < in.n_evaluation_points(); ++i)
         {
-          if (in.requests_property(MaterialProperties::viscosity))
-            out.viscosities[i] = viscosity(in.temperature[i], in.pressure[i], in.composition[i], in.strain_rate[i], in.position[i]);
-
           out.thermal_conductivities[i] = thermal_conductivity(in.temperature[i], in.pressure[i], in.position[i]);
           for (unsigned int c=0; c<in.composition[i].size(); ++c)
             out.reaction_terms[i][c] = 0;
@@ -310,6 +274,54 @@ namespace aspect
 
           MaterialUtilities::fill_averaged_equation_of_state_outputs(eos_outputs[i], mass_fractions, volume_fractions[i], i, out);
           fill_prescribed_outputs(i, volume_fractions[i], in, out);
+
+          if (in.requests_property(MaterialProperties::viscosity))
+            {
+              const double depth = this->get_geometry_model().depth(in.position[i]);
+              const double adiabatic_temperature = this->get_adiabatic_conditions().temperature(in.position[i]);
+
+              double delta_temperature;
+              if (use_lateral_average_temperature)
+                {
+                  const unsigned int idx = static_cast<unsigned int>((average_temperature.size()-1) * depth / this->get_geometry_model().maximal_depth());
+                  delta_temperature = in.temperature[i]-average_temperature[idx];
+                }
+              else
+                delta_temperature = in.temperature[i]-adiabatic_temperature;
+
+              // For an explanation on this formula see the Steinberger & Calderwood 2006 paper
+              const double vis_lateral_exp = -1.0*lateral_viscosity_lookup->lateral_viscosity(depth)*delta_temperature/(in.temperature[i]*adiabatic_temperature);
+              // Limit the lateral viscosity variation to a reasonable interval
+              const double vis_lateral = std::max(std::min(std::exp(vis_lateral_exp),max_lateral_eta_variation),1/max_lateral_eta_variation);
+
+              const double vis_radial = radial_viscosity_lookup->radial_viscosity(depth);
+
+              // The phase index is set to invalid_unsigned_int because it is assigned individually in the loop below
+              const double pressure_depth_derivative = this->get_gravity_model().gravity_vector(in.position[i]).norm() * out.densities[i];
+              MaterialUtilities::PhaseFunctionInputs<dim> phase_inputs(in.temperature[i],
+                                                                       eos_in.pressure[i],
+                                                                       depth,
+                                                                       pressure_depth_derivative,
+                                                                       numbers::invalid_unsigned_int);
+
+              // Compute value of phase functions
+              std::vector<double> phase_function_values(phase_function.n_phase_transitions(), 0.0);
+              for (unsigned int j=0; j < phase_function.n_phase_transitions(); j++)
+                {
+                  phase_inputs.phase_index = j;
+                  phase_function_values[j] = phase_function.compute_value(phase_inputs);
+                }
+
+              std::vector<double> compositional_prefactors(volume_fractions[i].size(), 0.0);
+
+              for (unsigned int c=0; c<in.composition[i].size(); ++c)
+                compositional_prefactors[c] = MaterialModel::MaterialUtilities::phase_average_value(phase_function_values, phase_function.n_phase_transitions_for_each_composition(),
+                                              phase_prefactors, c,  MaterialModel::MaterialUtilities::PhaseUtilities::logarithmic);
+
+              const double compositional_scaling = MaterialUtilities::average_value (volume_fractions[i], compositional_prefactors, viscosity_averaging);
+
+              out.viscosities[i] = std::max(std::min(compositional_scaling * vis_lateral * vis_radial,max_eta),min_eta);
+            }
         }
 
       // fill additional outputs if they exist
@@ -370,6 +382,19 @@ namespace aspect
           prm.declare_entry ("Number lateral average bands", "10",
                              Patterns::Integer (1),
                              "Number of bands to compute laterally averaged temperature within.");
+          prm.declare_entry ("Viscosity averaging scheme", "harmonic",
+                             Patterns::Selection("arithmetic|harmonic|geometric|maximum composition"),
+                             "When more than one compositional field is present at a point "
+                             "with different viscosities, we need to come up with an average "
+                             "viscosity at that point.  Select a weighted harmonic, arithmetic, "
+                             "geometric, or maximum composition.");
+          prm.declare_entry ("Phase viscosity prefactors", "1.",
+                             Patterns::Anything(),
+                             "A list of prefactors for the viscosity of each phase. The viscosity "
+                             "computed using the viscosity profile will be multiplied by this factor "
+                             "to get the corresponding viscosity for each phase. "
+                             "List must have one more entry than Phase transition depths. "
+                             "Units: non-dimensional.");
           prm.declare_entry ("Minimum viscosity", "1e19",
                              Patterns::Double (0.),
                              "The minimum viscosity that is allowed in the viscosity "
@@ -458,6 +483,8 @@ namespace aspect
           // Table lookup parameters
           EquationOfState::ThermodynamicTableLookup<dim>::declare_parameters(prm);
 
+          MaterialUtilities::PhaseFunction<dim>::declare_parameters(prm);
+
           prm.leave_subsection();
         }
         prm.leave_subsection();
@@ -535,6 +562,11 @@ namespace aspect
 
           const unsigned int n_chemical_fields = composition_mask->n_selected_components();
 
+          const std::vector<std::string> list_of_composition_names = this->introspection().get_composition_names();
+
+          viscosity_averaging = MaterialUtilities::parse_compositional_averaging_operation ("Viscosity averaging scheme",
+                                prm);
+
           // Assign background field and do some error checking
           AssertThrow ((equation_of_state.number_of_lookups() == 1) ||
                        (equation_of_state.number_of_lookups() == n_chemical_fields) ||
@@ -552,6 +584,15 @@ namespace aspect
 
           has_background_field = (equation_of_state.number_of_lookups() == n_chemical_fields + 1);
 
+          phase_function.initialize_simulator (this->get_simulator());
+          phase_function.parse_parameters (prm);
+
+          phase_prefactors = Utilities::parse_map_to_double_array(prm.get("Phase viscosity prefactors"),
+                                                                  list_of_composition_names,
+                                                                  has_background_field,
+                                                                  "Phase viscosity prefactors",
+                                                                  true,
+                                                                  std::make_unique<std::vector<unsigned int>>(phase_function.n_phases_for_each_composition()));
           prm.leave_subsection();
         }
         prm.leave_subsection();

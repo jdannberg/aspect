@@ -140,18 +140,6 @@ namespace aspect
          */
         void update() override;
 
-        /**
-         * @name Physical parameters used in the basic equations
-         * @{
-         */
-        virtual double viscosity (const double                  temperature,
-                                  const double                  pressure,
-                                  const std::vector<double>    &compositional_fields,
-                                  const SymmetricTensor<2,dim> &strain_rate,
-                                  const Point<dim>             &position) const;
-        /**
-         * @}
-         */
 
         /**
          * @name Qualitative properties one can ask a material model
@@ -289,6 +277,18 @@ namespace aspect
         double min_eta;
         double max_eta;
         double max_lateral_eta_variation;
+
+        /**
+         * Enumeration for selecting which viscosity averaging scheme to use.
+         */
+        MaterialUtilities::CompositionalAveragingOperation viscosity_averaging;
+
+        /**
+         * Vector for phase viscosity prefactors, read from parameter file.
+         */
+        std::vector<double> phase_prefactors;
+
+        MaterialUtilities::PhaseFunction<dim> phase_function;
 
         /**
          * Information about the location of data files.
