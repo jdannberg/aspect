@@ -2116,7 +2116,7 @@ namespace aspect
 
                 // ... and change the boundary id of any outflow boundary faces.
                 // If there is no flow, we do not want to apply dirichlet boundary conditions either.
-                if (integrated_flow >= 0)
+                if (integrated_flow > 0)
                   face->set_boundary_id(face->boundary_id() + offset);
               }
           }
