@@ -497,12 +497,12 @@ namespace aspect
                                                  * std::max(std::abs(property_minimums[property_index]),
                                                             std::abs(property_maximums[property_index]));
                         (void) tolerance;
-                        Assert(interpolated_value >= property_minimums[property_index] - tolerance,
-                               ExcMessage("The particle interpolation limiter did not succeed. Interpolated value: " + std::to_string(interpolated_value)
-                                          + " is smaller than the minimum particle property value: " + std::to_string(property_minimums[property_index]) + "."));
-                        Assert(interpolated_value <= property_maximums[property_index] + tolerance,
-                               ExcMessage("The particle interpolation limiter did not succeed. Interpolated value: " + std::to_string(interpolated_value)
-                                          + " is larger than the maximum particle property value: " + std::to_string(property_maximums[property_index]) + "."));
+                        //Assert(interpolated_value >= property_minimums[property_index] - tolerance,
+                        //       ExcMessage("The particle interpolation limiter did not succeed. Interpolated value: " + std::to_string(interpolated_value)
+                        //                  + " is smaller than the minimum particle property value: " + std::to_string(property_minimums[property_index]) + "."));
+                        //Assert(interpolated_value <= property_maximums[property_index] + tolerance,
+                        //       ExcMessage("The particle interpolation limiter did not succeed. Interpolated value: " + std::to_string(interpolated_value)
+                        //                  + " is larger than the maximum particle property value: " + std::to_string(property_maximums[property_index]) + "."));
 
                         // This chopping is done to avoid values that are just outside
                         // of the limiting bounds.

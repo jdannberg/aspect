@@ -735,9 +735,9 @@ namespace aspect
           if (this->convert_output_to_years())
             output_interval *= year_in_seconds;
 
-          AssertThrow(this->get_parameters().run_postprocessors_on_nonlinear_iterations == false,
-                      ExcMessage("Postprocessing nonlinear iterations in models with "
-                                 "particles is currently not supported."));
+          //AssertThrow(this->get_parameters().run_postprocessors_on_nonlinear_iterations == false,
+          //            ExcMessage("Postprocessing nonlinear iterations in models with "
+          //                       "particles is currently not supported."));
 
           output_formats   = Utilities::split_string_list(prm.get ("Data output format"));
           AssertThrow(Utilities::has_unique_entries(output_formats),

@@ -315,11 +315,20 @@ namespace aspect
     density (const double temperature,
              const double pressure,
              const std::vector<double> &compositional_fields,
-             const Point<dim> &/*position*/) const
+             const Point<dim> &) const
     {
       if (!use_table_properties)
         {
-          return reference_rho * std::exp(reference_compressibility * (pressure - this->get_surface_pressure()))
+          const std::vector<double> volume_fractions = MaterialUtilities::compute_only_composition_fractions(compositional_fields, this->introspection().chemical_composition_field_indices());
+          std::vector<double> densities (volume_fractions.size(), reference_rho);
+
+          // first density is for background field, so we do not change it
+          for (unsigned i=0; i<volume_fractions.size()-1; ++i)
+            densities[i+1] += compositional_density_contrasts[i];
+
+          const double reference_rho_local = MaterialUtilities::average_value (volume_fractions, densities, MaterialUtilities::arithmetic);
+
+          return reference_rho_local * std::exp(reference_compressibility * (pressure - this->get_surface_pressure()))
                  * (1 - thermal_alpha * (temperature - reference_T));
         }
       else
@@ -565,6 +574,12 @@ namespace aspect
               else
                 effective_viscosity = diff_viscosity;
 
+              if (this->get_time() > weak_zone_initiation_time && in.composition[i][3] > 0.0)
+                {
+                  // harmonic averaging
+                  effective_viscosity = 1./((1.-in.composition[i][3])/effective_viscosity + in.composition[i][3]/weak_zone_viscosity);
+                }
+
               if (enable_drucker_prager_rheology)
                 {
                   // Calculate non-yielding (viscous) stress magnitude.
@@ -627,7 +642,6 @@ namespace aspect
                   disl_viscosities_out->dislocation_viscosities[i] = std::min(std::max(min_eta,disl_viscosity),1e300);
                   disl_viscosities_out->diffusion_viscosities[i] = std::min(std::max(min_eta,diff_viscosity),1e300);
                 }
-
             }
 
           // fill seismic velocities outputs if they exist
@@ -944,6 +958,52 @@ namespace aspect
                              "it therefore changes the solution.");
           Rheology::DruckerPrager<dim>::declare_parameters(prm);
           ReactionModel::GrainSizeEvolution<dim>::declare_parameters(prm);
+
+          prm.declare_entry ("Weak zone initiation time", "0",
+                             Patterns::Double (0.),
+                             "The time when the viscosity is being reduced in the weak "
+                             "zone compositional field. Units: Years if the "
+                             "'Use years in output instead of seconds' parameter is set; "
+                             "seconds otherwise.");
+          prm.declare_entry ("Weak zone viscosity", "1e19",
+                             Patterns::Double (0.),
+                             "The viscosity of the weak zone compositional field. "
+                             "Units: \\si{\\pascal\\second}.");
+          prm.declare_entry ("Compositional density contrasts", "0.",
+                             Patterns::Anything(),
+                             "List of density contrasts for all chemical fields, for a "
+                             "total of N values, where N is the number of chemical fields. "
+                             "If only one value is given, then all use the same value. "
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
+          prm.enter_subsection("Grain damage partitioning");
+          {
+            prm.declare_entry ("Temperature for minimum grain damage partitioning", "1600",
+                               Patterns::Double (0.),
+                               "This parameter determines the temperature at which the computed coefficient of shear energy "
+                               "partitioned into grain damage is minimum. This is used in the pinned state limit of the grain "
+                               "size evolution. One choice of this parameter is the mantle temperature at the ridge axis, "
+                               "see Mulyukova and Bercovici (2018) for details.");
+            prm.declare_entry ("Temperature for maximum grain damage partitioning", "283",
+                               Patterns::Double (0.),
+                               "This parameter determines the temperature at which the computed coefficient of shear energy "
+                               "partitioned into grain damage is maximum. This is used in the pinned state limit of the grain "
+                               "size evolution. One choice of this parameter is the surface temperature of the seafloor, see "
+                               "Mulyukova and Bercovici (2018) for details.");
+            prm.declare_entry ("Minimum grain size reduction work fraction", "1e-12",
+                               Patterns::Double (0., 1.),
+                               "This parameter determines the minimum value of the partitioning coefficient, which governs "
+                               "the amount of shear heating partitioned into grain damage in the pinned state limit.");
+            prm.declare_entry ("Maximum grain size reduction work fraction", "1e-1",
+                               Patterns::Double (0., 1.),
+                               "This parameter determines the maximum value of the partitioning coefficient, which governs "
+                               "the amount of shear heating partitioned into grain damage in the pinned state limit.");
+            prm.declare_entry ("Grain size reduction work fraction exponent", "10",
+                               Patterns::Double (0.),
+                               "This parameter determines the variability in how much shear heating is partitioned into "
+                               "grain damage. A higher value suggests a wider temperature range over which the partitioning "
+                               "coefficient is high.");
+          }
+          prm.leave_subsection();
         }
         prm.leave_subsection();
       }
@@ -1075,13 +1135,26 @@ namespace aspect
           drucker_prager_plasticity.initialize_simulator (this->get_simulator());
 
           std::vector<unsigned int> n_phases = {n_phase_transitions+1};
-          drucker_prager_plasticity.parse_parameters(prm, std::make_unique<std::vector<unsigned int>> (n_phases));
+          const std::vector<unsigned int> n_phases_for_each_chemical_composition = phase_function->n_phases_for_each_chemical_composition();
+
+          drucker_prager_plasticity.parse_parameters(prm, std::make_unique<std::vector<unsigned int>> (n_phases_for_each_chemical_composition));
 
           // Parse grain size evolution parameters
           grain_size_evolution = std::make_unique<ReactionModel::GrainSizeEvolution<dim>>();
           grain_size_evolution->initialize_simulator(this->get_simulator());
           grain_size_evolution->initialize_phase_function(phase_function);
           grain_size_evolution->parse_parameters(prm);
+
+          weak_zone_initiation_time  = prm.get_double ("Weak zone initiation time");
+          if (this->convert_output_to_years())
+            weak_zone_initiation_time *= year_in_seconds;
+
+          weak_zone_viscosity        = prm.get_double ("Weak zone viscosity");
+
+          // Make options file for parsing maps to double arrays
+          std::vector<std::string> chemical_field_names = this->introspection().chemical_composition_field_names();
+          Utilities::MapParsing::Options options(chemical_field_names, "Compositional density contrasts");
+          compositional_density_contrasts = Utilities::MapParsing::parse_map_to_double_array(prm.get("Compositional density contrasts"), options);
         }
         prm.leave_subsection();
       }

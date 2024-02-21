@@ -193,6 +193,15 @@ namespace aspect
         std::vector<double> diffusion_creep_prefactor;
         std::vector<double> diffusion_creep_grain_size_exponent;
 
+        double weak_zone_initiation_time;
+        double weak_zone_viscosity;
+
+        /**
+         * Vector of density differences compared to the reference
+         * density $\rho_0$ (at zero pressure) with one entry per composition.
+         */
+        std::vector<double> compositional_density_contrasts;
+
         /**
          * Because of the nonlinear nature of this material model many
          * parameters need to be kept within bounds to ensure stability of the
