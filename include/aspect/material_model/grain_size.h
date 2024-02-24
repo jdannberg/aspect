@@ -309,6 +309,18 @@ namespace aspect
         std::vector<double> diffusion_creep_grain_size_exponent;
 
         /**
+         * The angle of internal friction
+         */
+        double angle_of_internal_friction;
+
+        /**
+         * The cohesion
+         */
+        double cohesion;
+
+        double weak_zone_initiation_time;
+
+        /**
          * Because of the nonlinear nature of this material model many
          * parameters need to be kept within bounds to ensure stability of the
          * solution. These bounds can be adjusted as input parameters.
