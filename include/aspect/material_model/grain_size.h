@@ -319,6 +319,13 @@ namespace aspect
         double cohesion;
 
         double weak_zone_initiation_time;
+        double weak_zone_viscosity;
+
+        /**
+         * Vector of density differences compared to the reference
+         * density $\rho_0$ (at zero pressure) with one entry per composition.
+         */
+        std::vector<double> compositional_density_constrasts;
 
         /**
          * Because of the nonlinear nature of this material model many

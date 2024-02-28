@@ -626,7 +626,11 @@ namespace aspect
         {
           // TODO: make densities an input (list)
           const std::vector<double> volume_fractions = MaterialUtilities::compute_only_composition_fractions(compositional_fields, this->introspection().chemical_composition_field_indices());
-          const std::vector<double> densities ({reference_rho, reference_rho-75., reference_rho-300., reference_rho-50.});
+          std::vector<double> densities (volume_fractions.size()+1, reference_rho);
+
+          // first density is for background field so we do not change it
+          for (unsigned i=0; i<volume_fractions.size(); ++i)
+            densities[i+1] += compositional_density_constrasts[i];
 
           const double reference_rho_local = MaterialUtilities::average_value (volume_fractions, densities, MaterialUtilities::arithmetic);
 
@@ -922,7 +926,7 @@ namespace aspect
               if (this->get_time() > weak_zone_initiation_time && in.composition[i][3] > 0.0)
                 {
                   // harmonic averaging
-                  effective_viscosity = 1./((1.-in.composition[i][3])/effective_viscosity + in.composition[i][3]/1.e19);
+                  effective_viscosity = 1./((1.-in.composition[i][3])/effective_viscosity + in.composition[i][3]/weak_zone_viscosity);
                 }
 
               // TODO: call Drucker-Prager rheology model with adiabatic pressure
@@ -1379,6 +1383,16 @@ namespace aspect
                              "zone compositional field. Units: Years if the "
                              "'Use years in output instead of seconds' parameter is set; "
                              "seconds otherwise.");
+          prm.declare_entry ("Weak zone viscosity", "1e19",
+                             Patterns::Double (0.),
+                             "The viscosity of the weak zone compositional field. "
+                             "Units: \\si{\\pascal\\second}.");
+          prm.declare_entry ("Compositional density contrasts", "0.",
+                             Patterns::Anything(),
+                             "List of density contrasts for all chemical fields, for a "
+                             "total of N values, where N is the number of chemical fields. "
+                             "If only one value is given, then all use the same value. "
+                             "Units: \\si{\\kilogram\\per\\meter\\cubed}.");
           prm.enter_subsection("Grain damage partitioning");
           {
             prm.declare_entry ("Temperature for minimum grain damage partitioning", "1600",
@@ -1660,6 +1674,13 @@ namespace aspect
           weak_zone_initiation_time  = prm.get_double ("Weak zone initiation time");
           if (this->convert_output_to_years())
             weak_zone_initiation_time *= year_in_seconds;
+
+          weak_zone_viscosity        = prm.get_double ("Weak zone viscosity");
+
+          // Make options file for parsing maps to double arrays
+          std::vector<std::string> chemical_field_names = this->introspection().chemical_composition_field_names();
+          Utilities::MapParsing::Options options(chemical_field_names, "Compositional density contrasts");
+          compositional_density_constrasts = Utilities::MapParsing::parse_map_to_double_array(prm.get("Compositional density contrasts"), options);
         }
         prm.leave_subsection();
       }
