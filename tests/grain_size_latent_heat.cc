@@ -130,6 +130,10 @@ namespace aspect
           std::vector<double> adiabatic_pressures (in.n_evaluation_points());
           std::vector<unsigned int> phase_indices (in.n_evaluation_points());
 
+          // We need the stress and dislocation strain rate to compute the grain size reduction int he reaction terms.
+          std::vector<double> stresses (in.n_evaluation_points());
+          std::vector<double> dislocation_strain_rates (in.n_evaluation_points());
+
           for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
             {
               std::vector<double> composition (in.composition[i]);
@@ -184,6 +188,12 @@ namespace aspect
                   else
                     effective_viscosity = diff_viscosity;
 
+                  // We assume that stress (and therefor also the dislocation viscosity and strain rate)
+                  // are constant within one time step.
+                  dislocation_strain_rates[i] = second_strain_rate_invariant
+                                                * effective_viscosity / dislocation_viscosities[i];
+                  stresses[i] = 2.0 * second_strain_rate_invariant * effective_viscosity;
+
                   out.viscosities[i] = std::min(std::max(this->min_eta,effective_viscosity),this->max_eta);
                 }
 
@@ -212,7 +222,7 @@ namespace aspect
               out.compressibilities[i] = this->compressibility(in.temperature[i], in.pressure[i], composition, in.position[i]);
             }
           if (in.requests_property(MaterialProperties::reaction_terms))
-            out.reaction_terms = this->grain_size_change(in, adiabatic_pressures, phase_indices);
+            out.reaction_terms = this->grain_size_change(in, adiabatic_pressures, phase_indices, stresses, dislocation_strain_rates);
         }
     };
   }

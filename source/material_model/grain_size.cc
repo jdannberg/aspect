@@ -214,7 +214,9 @@ namespace aspect
     GrainSize<dim>::
     grain_size_change (const typename Interface<dim>::MaterialModelInputs &in,
                        const std::vector<double>                          &pressures,
-                       const std::vector<unsigned int>                    &phase_indices) const
+                       const std::vector<unsigned int>                    &phase_indices,
+                       const std::vector<double>                          &stresses,
+                       const std::vector<double>                          &strain_rates_for_reduction) const
     {
       // we want to iterate over the grain size evolution here, as we solve in fact an ordinary differential equation
       // and it is not correct to use the starting grain size (and introduces instabilities)
@@ -240,6 +242,7 @@ namespace aspect
         })
       || timestep == 0.0)
       return reaction_terms;
+
 
       SUNDIALS::ARKode<VectorType>::AdditionalData data;
 
@@ -275,17 +278,6 @@ namespace aspect
                                                  :
                                                  0.0;
 
-            // We keep the dislocation viscosity of the last iteration as guess
-            // for the next one.
-            double current_dislocation_viscosity = 0.0;
-
-            const double adiabatic_temperature = this->get_adiabatic_conditions().is_initialized()
-                                                 ?
-                                                 this->get_adiabatic_conditions().temperature(in.position[i])
-                                                 :
-                                                 in.temperature[i];
-
-
 
             // grain size growth due to Ostwald ripening
             const double m = grain_growth_exponent[phase_indices[i]];
@@ -299,43 +291,27 @@ namespace aspect
               grain_size_growth_rate *= geometric_constant[phase_indices[i]] * phase_distribution /
                                         std::pow(roughness_to_grain_size, m);
 
+
             // grain size reduction in dislocation creep regime
-            const SymmetricTensor<2,dim> shear_strain_rate = in.strain_rate[i] - 1./dim * trace(in.strain_rate[i]) * unit_symmetric_tensor<dim>();
-            const double second_strain_rate_invariant = std::sqrt(std::max(-second_invariant(shear_strain_rate), 0.));
-
-            const double current_diffusion_viscosity   = diffusion_viscosity(in.temperature[i], adiabatic_temperature, pressures[i], grain_size, second_strain_rate_invariant, phase_indices[i]);
-            current_dislocation_viscosity = dislocation_viscosity(in.temperature[i], adiabatic_temperature, pressures[i], in.strain_rate[i], phase_indices[i], current_diffusion_viscosity, current_dislocation_viscosity);
-
-            double current_viscosity;
-            if (std::abs(second_strain_rate_invariant) > 1e-30)
-              current_viscosity = current_dislocation_viscosity * current_diffusion_viscosity / (current_dislocation_viscosity + current_diffusion_viscosity);
-            else
-              current_viscosity = current_diffusion_viscosity;
-
-            const double dislocation_strain_rate = second_strain_rate_invariant
-                                                   * current_viscosity / current_dislocation_viscosity;
-
             double grain_size_reduction_rate = 0.0;
 
             if (grain_size_evolution_formulation == Formulation::paleowattmeter)
               {
                 // paleowattmeter: Austin and Evans (2007): Paleowattmeters: A scaling relation for dynamically recrystallized grain size. Geology 35, 343-346
-                const double stress = 2.0 * second_strain_rate_invariant * current_viscosity;
-                grain_size_reduction_rate = 2.0 * stress * boundary_area_change_work_fraction[phase_indices[i]] * dislocation_strain_rate * grain_size * grain_size
+                grain_size_reduction_rate = 2.0 * stresses[i] * boundary_area_change_work_fraction[phase_indices[i]] * strain_rates_for_reduction[i] * grain_size * grain_size
                                             / (geometric_constant[phase_indices[i]] * grain_boundary_energy[phase_indices[i]]);
               }
             else if (grain_size_evolution_formulation == Formulation::pinned_grain_damage)
               {
                 // pinned_grain_damage: Mulyukova and Bercovici (2018) Collapse of passive margins by lithospheric damage and plunging grain size. Earth and Planetary Science Letters, 484, 341-352.
-                const double stress = 2.0 * second_strain_rate_invariant * current_viscosity;
-                grain_size_reduction_rate = 2.0 * stress * partitioning_fraction * second_strain_rate_invariant * grain_size * grain_size
+                grain_size_reduction_rate = 2.0 * stresses[i] * partitioning_fraction * strain_rates_for_reduction[i] * grain_size * grain_size
                                             * roughness_to_grain_size
                                             / (geometric_constant[phase_indices[i]] * grain_boundary_energy[phase_indices[i]] * phase_distribution);
               }
             else if (grain_size_evolution_formulation == Formulation::paleopiezometer)
               {
                 // paleopiezometer: Hall and Parmentier (2003): Influence of grain size evolution on convective instability. Geochem. Geophys. Geosyst., 4(3).
-                grain_size_reduction_rate = reciprocal_required_strain[phase_indices[i]] * dislocation_strain_rate * grain_size;
+                grain_size_reduction_rate = reciprocal_required_strain[phase_indices[i]] * strain_rates_for_reduction[i] * grain_size;
               }
             else
               AssertThrow(false, ExcNotImplemented());
@@ -788,6 +764,13 @@ namespace aspect
       std::vector<double> adiabatic_pressures (in.n_evaluation_points());
       std::vector<unsigned int> phase_indices (in.n_evaluation_points());
 
+      std::vector<double> diffusion_viscosities (in.n_evaluation_points());
+      std::vector<double> dislocation_viscosities (in.n_evaluation_points());
+
+      // We need the stress and dislocation strain rate to compute the grain size reduction int he reaction terms.
+      std::vector<double> stresses (in.n_evaluation_points());
+      std::vector<double> strain_rates_for_reduction (in.n_evaluation_points());
+
       for (unsigned int i=0; i<in.n_evaluation_points(); ++i)
         {
           // Use the adiabatic pressure instead of the real one, because of oscillations
@@ -809,10 +792,12 @@ namespace aspect
           MaterialUtilities::PhaseFunctionInputs<dim> phase_inputs(in.temperature[i], adiabatic_pressures[i], depth, rho_g, numbers::invalid_unsigned_int);
           phase_indices[i] = get_phase_index(phase_inputs);
 
-          if (in.requests_property(MaterialProperties::viscosity))
+          // We need the diffusion and sislocation viscosities to compute the grain size change
+          // for the reaction terms.
+          if (in.requests_property(MaterialProperties::viscosity) || in.requests_property(MaterialProperties::reaction_terms))
             {
               double effective_viscosity;
-              double disl_viscosity = std::numeric_limits<double>::max();
+
               Assert(std::isfinite(in.strain_rate[i].norm()),
                      ExcMessage("Invalid strain_rate in the MaterialModelInputs. This is likely because it was "
                                 "not filled by the caller."));
@@ -829,20 +814,37 @@ namespace aspect
               std::vector<double> composition (in.composition[i]);
               composition[grain_size_index] = std::max(min_grain_size,composition[grain_size_index]);
 
-              const double diff_viscosity = diffusion_viscosity(in.temperature[i],
-                                                                adiabatic_temperature,
-                                                                adiabatic_pressures[i],
-                                                                composition[grain_size_index],
-                                                                second_strain_rate_invariant,
-                                                                phase_indices[i]);
+              diffusion_viscosities[i] = diffusion_viscosity(in.temperature[i],
+                                                             adiabatic_temperature,
+                                                             adiabatic_pressures[i],
+                                                             composition[grain_size_index],
+                                                             second_strain_rate_invariant,
+                                                             phase_indices[i]);
 
+              dislocation_viscosities[i] = std::numeric_limits<double>::max();
               if (std::abs(second_strain_rate_invariant) > 1e-30)
                 {
-                  disl_viscosity = dislocation_viscosity(in.temperature[i], adiabatic_temperature, adiabatic_pressures[i], in.strain_rate[i], phase_indices[i], diff_viscosity);
-                  effective_viscosity = disl_viscosity * diff_viscosity / (disl_viscosity + diff_viscosity);
+                  dislocation_viscosities[i] = dislocation_viscosity(in.temperature[i], adiabatic_temperature, adiabatic_pressures[i], in.strain_rate[i], phase_indices[i], diffusion_viscosities[i]);
+                  effective_viscosity = dislocation_viscosities[i] * diffusion_viscosities[i] / (dislocation_viscosities[i] + diffusion_viscosities[i]);
                 }
               else
-                effective_viscosity = diff_viscosity;
+                effective_viscosity = diffusion_viscosities[i];
+
+              // We assume that stress (and therefor also the dislocation viscosity and strain rate)
+              // are constant within one time step. We need to apply the limits to the viscosity to
+              // compute the stress, because when the Stokes solver computes the strain rate, it also
+              // uses the limited viscosity.
+              stresses[i] = 2.0 * second_strain_rate_invariant * std::min(std::max(min_eta,effective_viscosity),max_eta);;
+
+              // We need to compute the strain rate here so we can pass it to the function that
+              // computes the grain size change.
+              strain_rates_for_reduction[i] = second_strain_rate_invariant;
+
+              // For the paleowattmeter and paleopiezometer, only the dislocation strain rate reduces the grain size.
+              if (grain_size_evolution_formulation == Formulation::paleowattmeter
+                  || grain_size_evolution_formulation == Formulation::paleopiezometer)
+                strain_rates_for_reduction[i] *= effective_viscosity / dislocation_viscosities[i];
+
 
               if (enable_drucker_prager_rheology)
                 {
@@ -903,8 +905,8 @@ namespace aspect
 
               if (DislocationViscosityOutputs<dim> *disl_viscosities_out = out.template get_additional_output<DislocationViscosityOutputs<dim>>())
                 {
-                  disl_viscosities_out->dislocation_viscosities[i] = std::min(std::max(min_eta,disl_viscosity),1e300);
-                  disl_viscosities_out->diffusion_viscosities[i] = std::min(std::max(min_eta,diff_viscosity),1e300);
+                  disl_viscosities_out->dislocation_viscosities[i] = std::min(std::max(min_eta,dislocation_viscosities[i]),1e300);
+                  disl_viscosities_out->diffusion_viscosities[i] = std::min(std::max(min_eta,diffusion_viscosities[i]),1e300);
                 }
 
               if (HeatingModel::ShearHeatingOutputs<dim> *shear_heating_out = out.template get_additional_output<HeatingModel::ShearHeatingOutputs<dim>>())
@@ -912,7 +914,7 @@ namespace aspect
                   if (grain_size_evolution_formulation == Formulation::paleowattmeter)
                     {
                       const double f = boundary_area_change_work_fraction[phase_indices[i]];
-                      shear_heating_out->shear_heating_work_fractions[i] = 1. - f * out.viscosities[i] / std::min(std::max(min_eta,disl_viscosity),1e300);
+                      shear_heating_out->shear_heating_work_fractions[i] = 1. - f * out.viscosities[i] / std::min(std::max(min_eta,dislocation_viscosities[i]),1e300);
                     }
                   else if (grain_size_evolution_formulation == Formulation::pinned_grain_damage)
                     {
@@ -933,8 +935,12 @@ namespace aspect
               }
         }
 
+      // TODO: Hand over diffusion(?) and dislocation viscosity
+      // We assume that the forces do not change over one time step. That means that dislocation viscosity depends
+      // on the strain rate that was computed before grain size evolution (in.strain_rate), and therefore does not
+      // change when the grain size evolves (only the diffusion viscosity depends on grain size).
       if (in.requests_property(MaterialProperties::reaction_terms))
-        out.reaction_terms = grain_size_change(in, adiabatic_pressures, phase_indices);
+        out.reaction_terms = grain_size_change(in, adiabatic_pressures, phase_indices, stresses, strain_rates_for_reduction);
 
 
       /* We separate the calculation of specific heat and thermal expansivity,

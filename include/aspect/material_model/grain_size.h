@@ -406,7 +406,9 @@ namespace aspect
         std::vector<std::vector<double>>
         grain_size_change (const typename Interface<dim>::MaterialModelInputs &in,
                            const std::vector<double>                          &adiabatic_pressure,
-                           const std::vector<unsigned int>                    &phase_indices) const;
+                           const std::vector<unsigned int>                    &phase_indices,
+                           const std::vector<double>                          &stresses,
+                           const std::vector<double>                          &strain_rates_for_reduction) const;
 
         /**
          * Function that returns the phase for a given
