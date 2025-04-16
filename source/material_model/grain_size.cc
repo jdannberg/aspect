@@ -574,7 +574,7 @@ namespace aspect
               else
                 effective_viscosity = diff_viscosity;
 
-              if (this->get_time() > weak_zone_initiation_time && in.composition[i][3] > 0.0)
+              if (in.composition[i][3] > 0.0)
                 {
                   // harmonic averaging
                   effective_viscosity = 1./((1.-in.composition[i][3])/effective_viscosity + in.composition[i][3]/weak_zone_viscosity);
@@ -959,12 +959,6 @@ namespace aspect
           Rheology::DruckerPrager<dim>::declare_parameters(prm);
           ReactionModel::GrainSizeEvolution<dim>::declare_parameters(prm);
 
-          prm.declare_entry ("Weak zone initiation time", "0",
-                             Patterns::Double (0.),
-                             "The time when the viscosity is being reduced in the weak "
-                             "zone compositional field. Units: Years if the "
-                             "'Use years in output instead of seconds' parameter is set; "
-                             "seconds otherwise.");
           prm.declare_entry ("Weak zone viscosity", "1e19",
                              Patterns::Double (0.),
                              "The viscosity of the weak zone compositional field. "
@@ -1144,10 +1138,6 @@ namespace aspect
           grain_size_evolution->initialize_simulator(this->get_simulator());
           grain_size_evolution->initialize_phase_function(phase_function);
           grain_size_evolution->parse_parameters(prm);
-
-          weak_zone_initiation_time  = prm.get_double ("Weak zone initiation time");
-          if (this->convert_output_to_years())
-            weak_zone_initiation_time *= year_in_seconds;
 
           weak_zone_viscosity        = prm.get_double ("Weak zone viscosity");
 

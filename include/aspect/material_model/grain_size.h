@@ -193,7 +193,6 @@ namespace aspect
         std::vector<double> diffusion_creep_prefactor;
         std::vector<double> diffusion_creep_grain_size_exponent;
 
-        double weak_zone_initiation_time;
         double weak_zone_viscosity;
 
         /**

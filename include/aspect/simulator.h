@@ -811,6 +811,7 @@ namespace aspect
        * <code>source/simulator/solver_schemes.cc</code>.
        */
       std::vector<double> assemble_and_solve_composition (const std::vector<double> &initial_residual = {},
+                                                          const bool update_particles = true,
                                                           std::vector<double> *residual = nullptr);
 
       /**

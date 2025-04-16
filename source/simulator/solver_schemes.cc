@@ -223,6 +223,7 @@ namespace aspect
   template <int dim>
   std::vector<double>
   Simulator<dim>::assemble_and_solve_composition (const std::vector<double> &initial_residual,
+                                                  const bool update_particles,
                                                   std::vector<double> *residual)
   {
     // Advect the particles before they are potentially used to
@@ -232,11 +233,11 @@ namespace aspect
         // Do not advect the particles in the initial refinement stage
         const bool in_initial_refinement = (timestep_number == 0)
                                            && (pre_refinement_step < parameters.initial_adaptive_refinement);
-        if (!in_initial_refinement)
+        if (!in_initial_refinement && update_particles)
           // Advance the particles in the manager to the current time
           particle_manager.advance_timestep();
 
-        if (particle_manager.get_property_manager().need_update() == Particle::Property::update_output_step)
+        if (particle_manager.get_property_manager().need_update() == Particle::Property::update_output_step && update_particles)
           particle_manager.update_particles();
       }
 
@@ -345,7 +346,7 @@ namespace aspect
           }
       }
 
-    if (fields_advected_by_particles.size() > 0)
+    if (fields_advected_by_particles.size() > 0 && update_particles)
       interpolate_particle_properties(fields_advected_by_particles);
 
 
@@ -939,13 +940,17 @@ namespace aspect
     double relative_residual = std::numeric_limits<double>::max();
     nonlinear_iteration = 0;
 
+    bool update_particles = true;
+
     do
       {
         // Restore particles through stored copy of particle handler,
         // but only if they have already been displaced in a nonlinear
         // iteration (in the assemble_and_solve_composition call).
+        if (nonlinear_iteration > 5)
+          update_particles = false;
 
-        if (nonlinear_iteration > 0)
+        if (nonlinear_iteration > 0 && update_particles)
           for (auto &particle_manager : particle_managers)
             particle_manager.restore_particles();
 
@@ -955,6 +960,7 @@ namespace aspect
 
         const std::vector<double>  relative_composition_residual =
           assemble_and_solve_composition(initial_composition_residual,
+                                         update_particles,
                                          nonlinear_iteration == 0 ? &initial_composition_residual : nullptr);
 
         const double relative_nonlinear_stokes_residual =
@@ -1363,7 +1369,7 @@ namespace aspect
 {
 #define INSTANTIATE(dim) \
   template double Simulator<dim>::assemble_and_solve_temperature(const double &, double*); \
-  template std::vector<double> Simulator<dim>::assemble_and_solve_composition(const std::vector<double> &, std::vector<double> *); \
+  template std::vector<double> Simulator<dim>::assemble_and_solve_composition(const std::vector<double> &, const bool, std::vector<double> *); \
   template double Simulator<dim>::assemble_and_solve_stokes(const double &, double*); \
   template void Simulator<dim>::solve_single_advection_single_stokes(); \
   template void Simulator<dim>::solve_no_advection_iterated_stokes(); \

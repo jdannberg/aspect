@@ -593,9 +593,18 @@ namespace aspect
                               if (item.second.first == name && item.second.second == property_component)
                                 composition_index = item.first;
                             }
-                          Assert(composition_index != numbers::invalid_unsigned_int, ExcMessage("TODO"));
 
-                          particle_properties.push_back(manager.boundary_composition(boundary_id,particle_location,composition_index));
+                          if (composition_index != numbers::invalid_unsigned_int)
+                            particle_properties.push_back(manager.boundary_composition(boundary_id,particle_location,composition_index));
+                          else
+                            {
+                              const std::vector<std::vector<double>> interpolated_properties = interpolator.properties_at_points(particle_handler,
+                                                                                                std::vector<Point<dim>> (1,particle_location),
+                                                                                                ComponentMask(property_information.n_components(),true),
+                                                                                                found_cell);
+                              particle_properties.push_back(interpolated_properties[0][property_information.get_position_by_plugin_index(property_index)+property_component]);
+                            }
+
                         }
                     }
 
