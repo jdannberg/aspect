@@ -1,0 +1,111 @@
+/*
+  Copyright (C) 2018 - 2024 by the authors of the ASPECT code.
+
+  This file is part of ASPECT.
+
+  ASPECT is free software; you can redistribute it and/or modify
+  it under the terms of the GNU General Public License as published by
+  the Free Software Foundation; either version 2, or (at your option)
+  any later version.
+
+  ASPECT is distributed in the hope that it will be useful,
+  but WITHOUT ANY WARRANTY; without even the implied warranty of
+  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+  GNU General Public License for more details.
+
+  You should have received a copy of the GNU General Public License
+  along with ASPECT; see the file LICENSE.  If not see
+  <http://www.gnu.org/licenses/>.
+*/
+
+
+#ifndef _aspect_mesh_deformation_phase_boundary_h
+#define _aspect_mesh_deformation_phase_boundary_h
+
+#include <aspect/mesh_deformation/interface.h>
+#include <aspect/simulator_access.h>
+#include <aspect/geometry_model/initial_topography_model/interface.h>
+
+
+namespace aspect
+{
+  namespace MeshDeformation
+  {
+    /**
+     * A class that represents a mesh deformation function that can be
+     * prescribed on the boundary of the domain.
+     *
+     * @ingroup MeshDeformation
+     */
+    template <int dim>
+    class PhaseBoundary : public Interface<dim>, public SimulatorAccess<dim>
+    {
+      public:
+        /**
+         * Constructor.
+         */
+        PhaseBoundary();
+
+        /**
+         *
+         */
+        void update() override;
+
+        /**
+         * Return the surface topography as a function of position along the surface.
+         * For the current class, this function returns a value from the text files.
+         *
+         * @copydoc aspect::InitialTopographyModel::Interface::value()
+         */
+        Tensor<1,dim>
+        compute_initial_deformation_on_boundary(const types::boundary_id boundary_indicator,
+                                                const Point<dim> &position) const override;
+
+
+        /**
+         * A function that creates constraints for the velocity of certain mesh
+         * vertices (e.g. the surface vertices) for a specific boundary.
+         * The calling class will respect
+         * these constraints when computing the new vertex positions.
+         */
+        void
+        compute_velocity_constraints_on_boundary(const DoFHandler<dim> &mesh_deformation_dof_handler,
+                                                 AffineConstraints<double> &mesh_velocity_constraints,
+                                                 const std::set<types::boundary_id> &boundary_id) const override;
+
+        /**
+         * Returns whether or not the plugin requires surface stabilization
+         */
+        bool needs_surface_stabilization () const override;
+
+        /**
+         * Declare parameters for the free surface handling.
+         */
+        static
+        void declare_parameters (ParameterHandler &prm);
+
+        /**
+         * Parse parameters for the free surface handling.
+         */
+        void parse_parameters (ParameterHandler &prm) override;
+
+      private:
+        /**
+         * Compute the surface velocity from a difference
+         * in surface height given by the phase transition.
+         */
+        void phase_boundary (const DoFHandler<dim> &free_surface_dof_handler,
+                             const IndexSet &mesh_locally_owned,
+                             const IndexSet &mesh_locally_relevant,
+                             LinearAlgebra::Vector &output,
+                             const std::set<types::boundary_id> &boundary_id) const;
+
+        double phase_transition_temperature;
+        double phase_transition_pressure;
+        double clapeyron_slope;
+    };
+  }
+}
+
+
+#endif
