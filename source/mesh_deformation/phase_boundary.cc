@@ -86,17 +86,14 @@ namespace aspect
       // Map of local to global cell dof indices
       std::vector<types::global_dof_index> face_dof_indices (dofs_per_face);
 
-      // Vector for getting the local dim displacement and initial topography values
+      // Vector for getting the local dim displacement values
       std::vector<Tensor<1, dim>> displacement_values(n_face_q_points);
-      std::vector<Tensor<1, dim>> initial_topography_values(n_face_q_points);
 
-      // The global displacements/initial topography on the MeshDeformation FE
+      // The global displacements on the MeshDeformation FE
       LinearAlgebra::Vector displacements = this->get_mesh_deformation_handler().get_mesh_displacements();
-      LinearAlgebra::Vector initial_topography = this->get_mesh_deformation_handler().get_initial_topography();
 
-      // An extractor for the dim-valued displacement and initial topography vectors.
+      // An extractor for the dim-valued displacement vectors.
       FEValuesExtractors::Vector extract_vertical_displacements(0);
-      FEValuesExtractors::Vector extract_initial_topography(0);
 
       // Cell iterator over the FE that contains the solution.
       typename DoFHandler<dim>::active_cell_iterator
@@ -131,25 +128,25 @@ namespace aspect
                   // Get the global numbers of the local DoFs of the mesh deformation cell
                   phase_boundary_cell->face(face_no)->get_dof_indices (face_dof_indices);
 
-                  // Extract the displacement and initial topography values
+                  // Extract the displacement values
                   fe_support_values[extract_vertical_displacements].get_function_values (displacements, displacement_values);
-                  fe_support_values[extract_initial_topography].get_function_values (initial_topography, initial_topography_values);
 
                   // Loop over the quadrature points of the current face
                   for (unsigned int i=0; i<face_dof_indices.size(); ++i)
                     {
-                      // Given the face dof, we get the component and overall cell dof index.
+                      // Given the face dof, get the component and overall cell dof index on the mesh deformation FE.
                       const std::pair<unsigned int, unsigned int> component_index = mesh_deformation_dof_handler.get_fe().face_system_to_component_index(i);
                       const unsigned int component = component_index.first;
                       const unsigned int support_index = component_index.second;
 
-                      // Given the face dof, we get the component and overall cell dof index.
+                      // Given the face dof, get the component index on the FE with the full solution.
                       const std::pair<unsigned int, unsigned int> component_index_p_T = this->get_fe().face_system_to_component_index(i);
                       const unsigned int support_index_p_T = component_index_p_T.second;
 
-                      // Get the gravity vector to compute the outward direction of displacement
+                      // Get the gravity vector to compute the direction of positive pressure for displacement.
+                      // Note that the quadrature point location is on the undeformed surface.
                       const Point<dim> point = fe_support_values.quadrature_point(support_index);
-                      Tensor<1,dim> direction = -(this->get_gravity_model().gravity_vector(point));
+                      Tensor<1,dim> direction = this->get_gravity_model().gravity_vector(point);
 
                       // Normalize direction vector
                       if (direction.norm() > 0.0)
@@ -158,18 +155,11 @@ namespace aspect
                         AssertThrow(direction.norm() > 0.0,
                                     ExcMessage("Gravity must be non-zero in models with phase boundary."));
 
-                      // Compute the total displacement in the gravity direction,
-                      // i.e. the initial topography + any additional mesh displacement.
-                      //const double delta_p = (in.pressure[support_index_p_T] - phase_transition_pressure
-                      const double delta_p = (this->get_adiabatic_conditions().pressure(point) - phase_transition_pressure
-                                              + clapeyron_slope * (in.temperature[support_index_p_T] - phase_transition_temperature));
+                      // Compute the new location of the phase boundary surface.
+                      const double delta_p = phase_transition_pressure - this->get_adiabatic_conditions().pressure(point + displacement_values[support_index])
+                                             + clapeyron_slope * (in.temperature[support_index_p_T] - phase_transition_temperature);
                       const double delta_r = delta_p / (out.densities[support_index_p_T] * this->get_gravity_model().gravity_vector(point).norm());
-
-                      const unsigned int dimension_of_dof = mesh_deformation_dof_handler.get_fe().system_to_component_index(support_index).first;
-
-                      const double new_surface = displacement_values[support_index][dimension_of_dof]
-                                                 + initial_topography_values[support_index][dimension_of_dof]
-                                                 + delta_r * direction[component];
+                      const double new_surface = delta_r * direction[component];
 
                       phase_boundary[face_dof_indices[i]] = new_surface;
                     }
@@ -182,12 +172,11 @@ namespace aspect
 
       // The phase_boundary vector contains the new displacements, but we need to return a velocity.
       // Therefore, we compute v=d_displacement/d_t.
-      // d_displacement are the new mesh node locations
-      // minus the old locations, which are initial_topography + displacements.
+
+      // TODO: think about stabilization to avoid drunken sailor effect. Make it an input.
       LinearAlgebra::Vector velocity(mesh_locally_owned, mesh_locally_relevant, this->get_mpi_communicator());
       velocity = phase_boundary;
-      velocity -= initial_topography;
-      velocity -= displacements;
+      velocity *= 0.1;
 
       // The velocity
       if (this->get_timestep() > 0.)
