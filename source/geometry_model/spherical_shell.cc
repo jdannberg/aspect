@@ -685,7 +685,8 @@ namespace aspect
           !Plugins::plugin_type_matches<const InitialTopographyModel::ZeroTopography<dim>>(this->get_initial_topography_model()))
         return std::min(std::max (R1 + manifold->topography_for_point(position) - position.norm(), 0.), maximal_depth());
       else
-        return std::min (R1-position.norm());
+        // TODO: only do this for phase boundary case
+        return R1-position.norm();
     }
 
 
