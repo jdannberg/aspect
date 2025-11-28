@@ -556,7 +556,8 @@ namespace aspect
             = this->get_boundary_convective_heating_manager().heat_transfer_coefficient(
                 face->boundary_id(),
                 scratch.face_material_model_inputs,
-                scratch.face_material_model_outputs);
+                scratch.face_material_model_outputs,
+                scratch.face_finite_element_values->get_normal_vectors());
 
           for (unsigned int q=0; q<n_face_q_points; ++q)
             {

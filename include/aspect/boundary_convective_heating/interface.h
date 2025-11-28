@@ -81,7 +81,8 @@ namespace aspect
         std::vector<double>
         heat_transfer_coefficient (const types::boundary_id boundary_indicator,
                                    const MaterialModel::MaterialModelInputs<dim> &material_model_inputs,
-                                   const MaterialModel::MaterialModelOutputs<dim> &material_model_outputs) const = 0;
+                                   const MaterialModel::MaterialModelOutputs<dim> &material_model_outputs,
+                                   const std::vector<Tensor<1,dim>> &normal_vectors) const = 0;
     };
 
 
@@ -142,7 +143,8 @@ namespace aspect
         std::vector<double>
         heat_transfer_coefficient (const types::boundary_id boundary_indicator,
                                    const MaterialModel::MaterialModelInputs<dim> &material_model_inputs,
-                                   const MaterialModel::MaterialModelOutputs<dim> &material_model_outputs) const;
+                                   const MaterialModel::MaterialModelOutputs<dim> &material_model_outputs,
+                                   const std::vector<Tensor<1,dim>> &normal_vectors) const;
 
         /**
          * Functions that are used to register boundary convective heating/

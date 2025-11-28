@@ -19,7 +19,7 @@
 */
 
 
-#include <aspect/boundary_convective_heating/function.h>
+#include <aspect/boundary_convective_heating/velocity_scaling.h>
 #include <aspect/global.h>
 #include <aspect/geometry_model/interface.h>
 #include <deal.II/base/signaling_nan.h>
@@ -30,12 +30,12 @@ namespace aspect
   {
     template <int dim>
     std::vector<double>
-    Function<dim>::
+    VelocityScaling<dim>::
     heat_transfer_coefficient
     (const types::boundary_id /*boundary_indicator*/,
      const MaterialModel::MaterialModelInputs<dim> &material_model_inputs,
      const MaterialModel::MaterialModelOutputs<dim> &/*material_model_outputs*/,
-     const std::vector<Tensor<1,dim>> &/*normal_vectors*/) const
+     const std::vector<Tensor<1,dim>> &normal_vectors) const
     {
       const unsigned int n_evaluation_points = material_model_inputs.n_evaluation_points();
       std::vector<double> heat_transfer_coefficients(n_evaluation_points);
@@ -43,6 +43,7 @@ namespace aspect
       for (unsigned int i=0; i<n_evaluation_points; ++i)
         {
           const Point<dim> position = material_model_inputs.position[i];
+
           if (coordinate_system == Utilities::Coordinates::cartesian)
             {
               heat_transfer_coefficients[i] = boundary_convective_heating_function.value(position);
@@ -70,6 +71,28 @@ namespace aspect
             {
               AssertThrow(false, ExcNotImplemented());
             }
+
+
+          // We want to base the heat transfer coefficient on whether material is flowing
+          // into or out of the boundary (and how fast). Inflowing material should have a large
+          // heat transfer coefficient (prescribed temperature),
+          // while outflowing material should have a heat transfer coefficient close to zero (Neumann).
+          // One difficulty here is that the normal vector can change its orientation over time,
+          // for example when we use a phase boundary. It is therefore more stable to use the gravity
+          // vector as a reference direction.
+          const Tensor<1,dim> gravity = this->get_gravity_model().gravity_vector(material_model_inputs.position[i]);
+          const double normal_velocity = material_model_inputs.velocity[i] * gravity / gravity.norm();
+
+          // heat_transfer_coefficients[i] = std::exp(-normal_velocity * heat_transfer_coefficients[i]);
+
+          // This seemed to work well (with a very low heat_transfer_coefficients, I think 0.0001)
+          // heat_transfer_coefficients[i] = 300. * std::tanh(-normal_velocity * heat_transfer_coefficients[i]);
+
+          if (normal_velocity > 0)
+            heat_transfer_coefficients[i] = 1. + std::tanh(-normal_velocity * heat_transfer_coefficients[i]);
+          else
+            heat_transfer_coefficients[i] = 1. - normal_velocity * heat_transfer_coefficients[i];
+
         }
 
       return heat_transfer_coefficients;
@@ -79,7 +102,7 @@ namespace aspect
 
     template <int dim>
     void
-    Function<dim>::update()
+    VelocityScaling<dim>::update()
     {
       // we get time passed as seconds (always) but may want
       // to reinterpret it in years
@@ -93,11 +116,11 @@ namespace aspect
 
     template <int dim>
     void
-    Function<dim>::declare_parameters (ParameterHandler &prm)
+    VelocityScaling<dim>::declare_parameters (ParameterHandler &prm)
     {
       prm.enter_subsection("Boundary convective heating model");
       {
-        prm.enter_subsection("Function");
+        prm.enter_subsection("Velocity scaling");
         {
           prm.declare_entry ("Coordinate system", "cartesian",
                              Patterns::Selection ("cartesian|spherical|depth"),
@@ -121,11 +144,11 @@ namespace aspect
 
     template <int dim>
     void
-    Function<dim>::parse_parameters (ParameterHandler &prm)
+    VelocityScaling<dim>::parse_parameters (ParameterHandler &prm)
     {
       prm.enter_subsection("Boundary convective heating model");
       {
-        prm.enter_subsection("Function");
+        prm.enter_subsection("Velocity scaling");
         {
           coordinate_system = Utilities::Coordinates::string_to_coordinate_system(prm.get("Coordinate system"));
         }
@@ -156,8 +179,8 @@ namespace aspect
 {
   namespace BoundaryConvectiveHeating
   {
-    ASPECT_REGISTER_BOUNDARY_CONVECTIVE_HEATING_MODEL(Function,
-                                                      "function",
+    ASPECT_REGISTER_BOUNDARY_CONVECTIVE_HEATING_MODEL(VelocityScaling,
+                                                      "velocity scaling",
                                                       "Implementation of a model in which the boundary heat "
                                                       "transfer coefficient is given in terms of an explicit formula "
                                                       "that is elaborated in the parameters in section "

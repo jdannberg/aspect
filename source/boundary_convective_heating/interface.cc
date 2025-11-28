@@ -218,14 +218,16 @@ namespace aspect
     std::vector<double>
     Manager<dim>::heat_transfer_coefficient (const types::boundary_id boundary_indicator,
                                              const MaterialModel::MaterialModelInputs<dim> &material_model_inputs,
-                                             const MaterialModel::MaterialModelOutputs<dim> &material_model_outputs) const
+                                             const MaterialModel::MaterialModelOutputs<dim> &material_model_outputs,
+                                             const std::vector<Tensor<1,dim>> &normal_vectors) const
     {
       std::vector<double> coefficients;
 
       for (const auto &p: this->plugin_objects)
         coefficients = p->heat_transfer_coefficient(boundary_indicator,
                                                     material_model_inputs,
-                                                    material_model_outputs);
+                                                    material_model_outputs,
+                                                    normal_vectors);
       return coefficients;
     }
 

@@ -19,8 +19,8 @@
 */
 
 
-#ifndef _aspect_boundary_convective_heating_function_h
-#define _aspect_boundary_convective_heating_function_h
+#ifndef _aspect_boundary_convective_heating_velocity_scaling_h
+#define _aspect_boundary_convective_heating_velocity_scaling_h
 
 #include <aspect/boundary_convective_heating/interface.h>
 #include <aspect/simulator_access.h>
@@ -39,7 +39,7 @@ namespace aspect
      * @ingroup BoundaryConvectiveHeating
      */
     template <int dim>
-    class Function : public Interface<dim>, public SimulatorAccess<dim>
+    class VelocityScaling : public Interface<dim>, public SimulatorAccess<dim>
     {
       public:
         /**
