@@ -100,6 +100,7 @@ namespace aspect
           std::vector<double> conductivity_pressure_dependencies;
           std::vector<double> conductivity_reference_temperatures;
           std::vector<double> conductivity_exponents;
+          std::vector<double> conductivity_composition_prefactors;
           std::vector<double> saturation_scaling;
 
           /**

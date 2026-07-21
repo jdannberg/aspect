@@ -33,6 +33,7 @@ namespace aspect
                                      MaterialModel::MaterialModelOutputs<dim> &out) const
       {
         const unsigned int n_evaluation_points = in.n_evaluation_points();
+
         for (unsigned int i=0; i<n_evaluation_points; ++i)
           {
             // Find the conductivity layer that corresponds to the depth of the evaluation point.
@@ -56,7 +57,14 @@ namespace aspect
               saturation_function = (1. - saturation_scaling[layer_index])
                                     + saturation_scaling[layer_index] * (2./3. * std::sqrt(T_dependence) + 1./3. * 1./T_dependence);
 
-            out.thermal_conductivities[i] = std::min(p_dependence * saturation_function * T_dependence, maximum_conductivity);
+            // Scale thermal conductivity with composition
+            // We should really average by volume rather than mass fractions, but we do not have the component densities here.
+            std::vector<double> mass_fractions = MaterialUtilities::compute_only_composition_fractions(in.composition[i],
+                                                 this->introspection().chemical_composition_field_indices());
+
+            const double c_dependence = MaterialUtilities::average_value (mass_fractions, conductivity_composition_prefactors, MaterialUtilities::geometric);
+
+            out.thermal_conductivities[i] = std::min(p_dependence * saturation_function * T_dependence * c_dependence, maximum_conductivity);
           }
       }
 
@@ -107,6 +115,11 @@ namespace aspect
                            "reproduces the formulation of Stackhouse et al. (2015), a value of "
                            "0 reproduces the formulation of Tosi et al., (2013). "
                            "Units: none.");
+        prm.declare_entry ("Thermal conductivity composition prefactors", "1.",
+                           Patterns::List(Patterns::Double (0.)),
+                           "A list of values that indicate how the thermal conductivity "
+                           "should be scaled depending on the composition of the material. "
+                           "Units: none.");
         prm.declare_entry ("Maximum thermal conductivity", "1000",
                            Patterns::Double (0.),
                            "The maximum thermal conductivity that is allowed in the "
@@ -122,6 +135,7 @@ namespace aspect
         conductivity_transition_depths = Utilities::string_to_double
                                          (Utilities::split_string_list(prm.get ("Thermal conductivity transition depths")));
         const unsigned int n_conductivity_layers = conductivity_transition_depths.size() + 1;
+        const unsigned int n_chemical_fields = this->introspection().chemical_composition_field_indices().size();
 
         AssertThrow (std::is_sorted(conductivity_transition_depths.begin(), conductivity_transition_depths.end()),
                      ExcMessage("The list of 'Thermal conductivity transition depths' must "
@@ -142,6 +156,10 @@ namespace aspect
         saturation_scaling = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Saturation prefactors"))),
                                                                      n_conductivity_layers,
                                                                      "Saturation prefactors");
+
+        conductivity_composition_prefactors = Utilities::possibly_extend_from_1_to_N (Utilities::string_to_double(Utilities::split_string_list(prm.get("Thermal conductivity composition prefactors"))),
+                                                                                      n_chemical_fields+1,
+                                                                                      "Thermal conductivity composition prefactors");
         maximum_conductivity = prm.get_double ("Maximum thermal conductivity");
       }
     }
